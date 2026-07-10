@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+
+certs/*.crt
+certs/*.key
+!certs/.gitkeep
