@@ -69,16 +69,7 @@ def hexdump(data: bytes, width: int = 16):
 
 def print_encrypted_record(record: TLSRecord):
 
-    print("Registro Criptografado")
-
-    print(f"Tipo       : {get_record_name(record.content_type)}")
-
-    print(
-        f"Versão     : "
-        f"{record.version[0]}.{record.version[1]}"
-    )
-
-    print(f"Tamanho    : {record.length} bytes")
+    print("\U0001F512 Registro Criptografado")
 
     print()
 
@@ -97,6 +88,10 @@ def print_encrypted_record(record: TLSRecord):
         print(
             f"... ({len(record.body)-64} bytes omitidos)"
         )
+
+    print()
+    print("Conteúdo protegido por criptografia.")
+    print("Não é possível interpretar sem a chave da sessão.")
 
 def parse_tls_records(payload: bytes):
     """
@@ -218,9 +213,9 @@ def callback(pkt):
 
         print(f"Tipo    : {get_record_name(record.content_type)}")
 
-        print(f"Versão  : {record.version.hex()}")
+        print(f"Versão  : {record.version[0]}.{record.version[1]} (0x{record.version.hex()})")
 
-        print(f"Tamanho : {record.length}")
+        print(f"Tamanho : {record.length} Bytes")
 
         print()
 
