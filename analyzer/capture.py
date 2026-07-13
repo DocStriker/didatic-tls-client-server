@@ -104,7 +104,31 @@ def callback(pkt):
     print(f"SEQ         : {tcp.seq}")
     print(f"ACK         : {tcp.ack}")
 
+    print(f"Janela      : {tcp.window}")
     print(f"Flags       : {tcp.flags}")
+
+    flags = str(tcp.flags)
+
+    if flags == "S":
+        print("Evento : SYN")
+
+    elif flags == "SA":
+        print("Evento : SYN-ACK")
+
+    elif flags == "A":
+        print("Evento : ACK")
+
+    elif flags == "F":
+        print("Evento : FIN")
+
+    elif flags == "FA":
+        print("Evento : FIN-ACK")
+
+    elif flags == "R":
+        print("Evento : RST")
+
+    elif flags == "PA":
+        print("Evento : PUSH-ACK")
 
     payload = bytes(tcp.payload)
 
@@ -119,7 +143,7 @@ def callback(pkt):
 
     print()
 
-    if payload_type == "Texto UTF-8":
+    if payload_type == "Dados Binários":
 
         print("Conteúdo")
 
