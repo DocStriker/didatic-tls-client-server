@@ -3,50 +3,8 @@ from scapy.layers.inet import IP, TCP
 
 SERVER_PORT = 8443
 
+seen = set()
 
-class TLSRecord:
-    """Representa um TLS Record."""
-
-    HEADER_SIZE = 5
-
-    def __init__(self, data: bytes):
-
-        if len(data) < self.HEADER_SIZE:
-            raise ValueError("TLS Record incompleto.")
-
-        self.content_type = data[0]
-        self.version = data[1:3]
-        self.length = int.from_bytes(data[3:5], "big")
-        self.body = data[5:5 + self.length]
-
-    def __repr__(self):
-        return (
-            f"TLSRecord("
-            f"type={self.content_type}, "
-            f"length={self.length})"
-        )
-
-
-class HandshakeMessage:
-    """Representa uma mensagem de Handshake TLS."""
-
-    HEADER_SIZE = 4
-
-    def __init__(self, data: bytes):
-
-        if len(data) < self.HEADER_SIZE:
-            raise ValueError("Handshake incompleto.")
-
-        self.handshake_type = data[0]
-        self.length = int.from_bytes(b"\x00" + data[1:4], "big")
-        self.body = data[4:4 + self.length]
-
-    def __repr__(self):
-        return (
-            f"Handshake("
-            f"type={self.handshake_type}, "
-            f"length={self.length})"
-        )
 
 def hexdump(data: bytes, width: int = 16):
 
@@ -67,80 +25,38 @@ def hexdump(data: bytes, width: int = 16):
             f"{ascii_bytes}"
         )
 
-def print_encrypted_record(record: TLSRecord):
 
-    print("\U0001F512 Registro Criptografado")
+def identify_payload(data: bytes):
 
-    print()
+    if not data:
+        return "Sem payload"
 
-    preview = record.body[:64]
+    try:
 
-    print(
-        f"Primeiros {len(preview)} bytes:"
-    )
+        text = data.decode("utf-8")
 
-    hexdump(preview)
+        if text.isprintable():
+            return "Texto UTF-8"
 
-    if len(record.body) > 64:
+    except UnicodeDecodeError:
+        pass
 
-        print()
+    if data.startswith(b"GET"):
+        return "HTTP Request"
 
-        print(
-            f"... ({len(record.body)-64} bytes omitidos)"
-        )
+    if data.startswith(b"POST"):
+        return "HTTP Request"
 
-    print()
-    print("Conteúdo protegido por criptografia.")
-    print("Não é possível interpretar sem a chave da sessão.")
+    if data.startswith(b"HTTP"):
+        return "HTTP Response"
 
-def parse_tls_records(payload: bytes):
-    """
-    Percorre todos os TLS Records presentes
-    em um único segmento TCP.
-    """
+    if data.startswith(b"{"):
+        return "JSON"
 
-    offset = 0
+    if data.startswith(b"["):
+        return "JSON"
 
-    while offset + TLSRecord.HEADER_SIZE <= len(payload):
-
-        try:
-            record = TLSRecord(payload[offset:])
-
-        except ValueError:
-            break
-
-        yield record
-
-        offset += TLSRecord.HEADER_SIZE + record.length
-
-
-def get_record_name(content_type: int):
-
-    mapping = {
-        20: "Change Cipher Spec",
-        21: "Alert",
-        22: "Handshake",
-        23: "Application Data"
-    }
-
-    return mapping.get(content_type, "Desconhecido")
-
-
-def get_handshake_name(handshake_type: int):
-
-    mapping = {
-        1: "ClientHello",
-        2: "ServerHello",
-        8: "EncryptedExtensions",
-        11: "Certificate",
-        15: "CertificateVerify",
-        20: "Finished"
-    }
-
-    return mapping.get(handshake_type, "Handshake Desconhecido")
-
-
-seen = set()
+    return "Dados Binários"
 
 
 def callback(pkt):
@@ -162,7 +78,7 @@ def callback(pkt):
         tcp.seq,
         tcp.ack,
         str(tcp.flags),
-        len(tcp.payload),
+        len(tcp.payload)
     )
 
     if key in seen:
@@ -170,7 +86,7 @@ def callback(pkt):
 
     seen.add(key)
 
-    print("=" * 70)
+    print("=" * 80)
 
     direction = (
         "CLIENTE → SERVIDOR"
@@ -179,75 +95,54 @@ def callback(pkt):
     )
 
     print(direction)
-    print(pkt.summary())
 
-    flags = str(tcp.flags)
+    print()
 
-    if flags == "S":
-        print("Evento : SYN")
+    print(f"Origem      : {ip.src}:{tcp.sport}")
+    print(f"Destino     : {ip.dst}:{tcp.dport}")
 
-    elif flags == "SA":
-        print("Evento : SYN-ACK")
+    print(f"SEQ         : {tcp.seq}")
+    print(f"ACK         : {tcp.ack}")
 
-    elif flags == "A":
-        print("Evento : ACK")
-
-    elif "F" in flags:
-        print("Evento : FIN")
-
-    elif "R" in flags:
-        print("Evento : RST")
+    print(f"Flags       : {tcp.flags}")
 
     payload = bytes(tcp.payload)
 
-    print(f"Payload : {len(payload)} bytes")
+    print(f"Payload     : {len(payload)} bytes")
 
     if not payload:
         return
 
+    payload_type = identify_payload(payload)
+
+    print(f"Tipo        : {payload_type}")
+
     print()
 
-    for index, record in enumerate(parse_tls_records(payload), start=1):
+    if payload_type == "Texto UTF-8":
 
-        print(f"TLS Record #{index}")
+        print("Conteúdo")
 
-        print(f"Tipo    : {get_record_name(record.content_type)}")
+        print("-" * 40)
 
-        print(f"Versão  : {record.version[0]}.{record.version[1]} (0x{record.version.hex()})")
+        print(payload.decode())
 
-        print(f"Tamanho : {record.length} Bytes")
+        print("-" * 40)
 
-        print()
+    else:
 
-        if record.content_type == 22:
+        print("Hexdump")
 
-            try:
+        print("-" * 40)
 
-                handshake = HandshakeMessage(record.body)
+        hexdump(payload)
 
-                print(
-                    f"Handshake : "
-                    f"{get_handshake_name(handshake.handshake_type)}"
-                )
-
-                print(
-                    f"HS Length : "
-                    f"{handshake.length}"
-                )
-
-            except ValueError:
-
-                print("Handshake incompleto.")
-
-        else:
-
-            print_encrypted_record(record)
-
-        print()
+        print("-" * 40)
 
 
 sniff(
     iface="lo",
+    filter=f"tcp port {SERVER_PORT}",
     prn=callback,
     store=False
 )
