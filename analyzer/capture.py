@@ -1,5 +1,5 @@
 from scapy.all import sniff
-from scapy.layers.inet import IP, TCP
+from scapy.layers.inet import IP, TCP, UDP
 
 SERVER_PORT = 8443
 
@@ -61,76 +61,102 @@ def identify_payload(data: bytes):
 
 def callback(pkt):
 
-    if IP not in pkt or TCP not in pkt:
+    if IP not in pkt:
+        return
+
+    if TCP not in pkt and UDP not in pkt:
+        return
+
+    transport = pkt[TCP] if TCP in pkt else pkt[UDP]
+
+    if SERVER_PORT not in (transport.sport, transport.dport):
         return
 
     ip = pkt[IP]
-    tcp = pkt[TCP]
+    protocol = "TCP" if TCP in pkt else "UDP"
 
-    if SERVER_PORT not in (tcp.sport, tcp.dport):
-        return
+    if protocol == "TCP":
 
-    key = (
-        ip.src,
-        ip.dst,
-        tcp.sport,
-        tcp.dport,
-        tcp.seq,
-        tcp.ack,
-        str(tcp.flags),
-        len(tcp.payload)
-    )
+        key = (
+            ip.src,
+            ip.dst,
+                transport.sport,
+                transport.dport,
+                transport.seq,
+                transport.ack,
+                str(transport.flags),
+                len(transport.payload)
+            )
 
-    if key in seen:
-        return
+        if key in seen:
+            return
 
-    seen.add(key)
+        seen.add(key)
 
-    print("=" * 80)
+        print("=" * 80)
 
-    direction = (
-        "CLIENTE → SERVIDOR"
-        if tcp.dport == SERVER_PORT
-        else "SERVIDOR → CLIENTE"
-    )
+        direction = (
+            "CLIENTE → SERVIDOR"
+                if transport.dport == SERVER_PORT
+                else "SERVIDOR → CLIENTE"
+            )
 
-    print(direction)
+        print(direction)
 
-    print()
+        print()
 
-    print(f"Origem      : {ip.src}:{tcp.sport}")
-    print(f"Destino     : {ip.dst}:{tcp.dport}")
+        print(f"Origem      : {ip.src}:{transport.sport}")
+        print(f"Destino     : {ip.dst}:{transport.dport}")
 
-    print(f"SEQ         : {tcp.seq}")
-    print(f"ACK         : {tcp.ack}")
+        print(f"SEQ         : {transport.seq}")
+        print(f"ACK         : {transport.ack}")
 
-    print(f"Janela      : {tcp.window}")
-    print(f"Flags       : {tcp.flags}")
+        print(f"Janela      : {transport.window}")
+        print(f"Flags       : {transport.flags}")
 
-    flags = str(tcp.flags)
+        flags = str(transport.flags)
 
-    if flags == "S":
-        print("Evento : SYN")
+        if flags == "S":
+            print("Evento      : SYN")
 
-    elif flags == "SA":
-        print("Evento : SYN-ACK")
+        elif flags == "SA":
+            print("Evento      : SYN-ACK")
 
-    elif flags == "A":
-        print("Evento : ACK")
+        elif flags == "A":
+            print("Evento      : ACK")
 
-    elif flags == "F":
-        print("Evento : FIN")
+        elif flags == "F":
+            print("Evento      : FIN")
 
-    elif flags == "FA":
-        print("Evento : FIN-ACK")
+        elif flags == "FA":
+            print("Evento      : FIN-ACK")
 
-    elif flags == "R":
-        print("Evento : RST")
+        elif flags == "R":
+            print("Evento      : RST")
 
-    elif flags == "PA":
-        print("Evento : PUSH-ACK")
+        elif flags == "PA":
+            print("Evento      : PUSH-ACK")
 
-    payload = bytes(tcp.payload)
+    else:
+
+        key = (
+            ip.src,
+            ip.dst,
+            transport.sport,
+            transport.dport,
+            len(transport.payload)
+            )
+
+        if key in seen:
+            return
+
+        seen.add(key)
+        print("Evento : Datagrama UDP")
+
+        print(f"Comprimento : {transport.len}")
+        print(f"Checksum    : 0x{transport.chksum:04X}")
+
+    payload = bytes(transport.payload)
 
     print(f"Payload     : {len(payload)} bytes")
 
@@ -143,7 +169,7 @@ def callback(pkt):
 
     print()
 
-    if payload_type == "Dados Binários":
+    if payload_type == "Texto UTF-8":
 
         print("Conteúdo")
 
@@ -163,10 +189,9 @@ def callback(pkt):
 
         print("-" * 40)
 
-
 sniff(
     iface="lo",
-    filter=f"tcp port {SERVER_PORT}",
+    #filter=f"tcp port {SERVER_PORT}",
     prn=callback,
     store=False
 )

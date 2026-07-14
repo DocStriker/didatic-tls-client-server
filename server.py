@@ -23,7 +23,7 @@ def handle_client(conn: socket.socket, address: tuple[str, int]) -> None:
     print(f"[servidor] mensagem recebida: {message}")
 
     response = (
-        "Olá do servidor TCP! Sua mensagem chegou sem criptografia.\n"
+        "Olá do servidor TCP! Sua mensagem chegou sem criptografia."
     )
 
     # ======================================================
@@ -40,29 +40,46 @@ def handle_client(conn: socket.socket, address: tuple[str, int]) -> None:
     conn.sendall(response.encode("utf-8"))
 
 
-def serve(host: str, port: int) -> None:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
+def serve(protocol: str, host: str, port: int) -> None:
 
-        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if protocol == "TCP":
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
 
-        server_socket.bind((host, port))
+            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-        server_socket.listen(5)
+            server_socket.bind((host, port))
 
-        print(f"[servidor] aguardando conexões em {host}:{port}")
-        print("[servidor] protocolo: TCP puro")
-        print("[servidor] pressione Ctrl+C para parar")
+            server_socket.listen(5)
 
-        while True:
-            conn, address = server_socket.accept()
+            print(f"[servidor] aguardando conexões em {host}:{port}")
+            print("[servidor] protocolo: TCP puro")
+            print("[servidor] pressione Ctrl+C para parar")
 
-            with conn:
-                handle_client(conn, address)
+            while True:
+                conn, address = server_socket.accept()
 
+                with conn:
+                    handle_client(conn, address)
+
+    elif protocol == "UDP":
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server:
+
+            server.bind(("127.0.0.1", 8443))
+
+            print("Servidor UDP iniciado")
+
+            while True:
+
+                data, addr = server.recvfrom(4096)
+
+                print(f"{addr} -> {data.decode()}")
+
+                server.sendto(b"Recebido", addr)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Servidor TCP didático.")
 
+    parser.add_argument("--protocol", default="TCP")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8443)
 
@@ -71,4 +88,4 @@ def parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_args()
-    serve(args.host, args.port)
+    serve(args.protocol, args.host, args.port)
