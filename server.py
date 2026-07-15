@@ -1,43 +1,28 @@
 import argparse
 import socket
-
+from trp import TRPSocket, TRPRecord, RecordType
 
 def handle_client(conn: socket.socket, address: tuple[str, int]) -> None:
-    print(f"[servidor] cliente conectado: {address[0]}:{address[1]}")
+    print(f"[servidor] Cliente conectado: {address[0]}:{address[1]}")
 
-    data = conn.recv(4096)
+    try:
 
-    # ======================================================
-    # TODO:
-    # Futuramente:
-    #
-    # ciphertext
-    #      ↓
-    # decrypt()
-    #      ↓
-    # plaintext
-    # ======================================================
+        record = TRPSocket.recv_record(conn)
 
-    message = data.decode("utf-8").strip()
+        print(f"[TRP] Tipo.......: {record.record_type.name}")
+        print(f"[TRP] Tamanho...: {len(record.payload)} bytes")
 
-    print(f"[servidor] mensagem recebida: {message}")
+        message = record.payload.decode("utf-8")
 
-    response = (
-        "Olá do servidor TCP! Sua mensagem chegou sem criptografia."
-    )
+        print(f"[TRP] Payload....: {message}")
 
-    # ======================================================
-    # TODO:
-    # Futuramente:
-    #
-    # plaintext
-    #      ↓
-    # encrypt()
-    #      ↓
-    # ciphertext
-    # ======================================================
+        response = TRPRecord(RecordType.APPLICATION_DATA, "Olá do servidor! TRP recebido com sucesso.".encode("utf-8"))
 
-    conn.sendall(response.encode("utf-8"))
+        TRPSocket.send_record(conn, response)
+
+    except Exception as e:
+
+        print(f"[ERRO] {e}")
 
 
 def serve(protocol: str, host: str, port: int) -> None:
@@ -66,7 +51,9 @@ def serve(protocol: str, host: str, port: int) -> None:
 
             server.bind(("127.0.0.1", 8443))
 
-            print("Servidor UDP iniciado")
+            print(f"[servidor] aguardando conexões em {host}:{port}")
+            print("[servidor] protocolo: UDP puro")
+            print("[servidor] pressione Ctrl+C para parar")
 
             while True:
 
