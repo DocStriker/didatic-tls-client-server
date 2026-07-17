@@ -1,7 +1,5 @@
-import socket
 import struct
 from enum import IntFlag
-
 
 class TTPFlags(IntFlag):
 
@@ -11,7 +9,6 @@ class TTPFlags(IntFlag):
     FIN = 0x04
     RST = 0x08
     DATA = 0x10
-
 
 class TTPPacket:
 

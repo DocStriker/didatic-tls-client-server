@@ -144,7 +144,7 @@ def calculate_ttp_checksum(
 
 # ipv4.py
 
-from ttp import TTPPacket
+from proto.ttp import TTPPacket
 
 
 def build_ttp_ipv4_packet(

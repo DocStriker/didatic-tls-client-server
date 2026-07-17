@@ -1,44 +1,16 @@
 import argparse
-import socket
-from trp import TRPSocket, TRPRecord, RecordType
-
+from sockets.client_socks import tcp_client, udp_client, ttp_client
 
 def run_client(protocol: str, host: str, port: int, message: str) -> None:
 
-    if protocol == "TRP":
-        with TRPSocket() as client:
-            client.send_record(
-                TRPRecord(RecordType.APPLICATION_DATA, message.encode("utf-8"))
-            )
-
-            response = client.recv_record()
-            print(f"[cliente] resposta: {response.payload.decode('utf-8').strip()}")
-
     if protocol == "TCP":
-        with socket.create_connection((host, port), timeout=10) as sock:
-            print(f"[cliente] conectado em {host}:{port}")
-
-            record = TRPRecord(
-            RecordType.APPLICATION_DATA,
-            "Olá servidor! TRP recebido com sucesso.".encode("utf-8")
-            )
-
-            TRPSocket.send_record(sock, record)
-
-            response = TRPSocket.recv_record(sock)
-            print(f"[cliente] resposta: {response.payload.decode('utf-8').strip()}")
+        tcp_client(host, port, message)
 
     elif protocol == "UDP":
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+       udp_client(host, port, message)
 
-            client.sendto(
-                b"Ola servidor",
-                ("127.0.0.1", 8443)
-            )
-
-            data, addr = client.recvfrom(4096)
-
-            print(data.decode(), "from", addr)
+    elif protocol == "TTP":
+        ttp_client(message)
 
 
 def parse_args() -> argparse.Namespace:

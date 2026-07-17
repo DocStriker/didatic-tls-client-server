@@ -1,104 +1,26 @@
-from scapy.all import sniff
-from scapy.layers.inet import IP, TCP, UDP
-
+from scapy.all import IP, TCP, UDP
+from utils import print_payload
+from scapy.fields import (ShortField, IntField, ByteField)
+from scapy.packet import Packet
 
 SERVER_PORT = 8443
 TTP_PROTOCOL = 253
 
 seen = set()
 
-from scapy.packet import Packet, bind_layers
-from scapy.fields import (
-    ShortField,
-    IntField,
-    ByteField
-)
-
 class TTP(Packet):
 
     name = "TTP"
 
     fields_desc = [
-
         ShortField("source_port", 0),
-
         ShortField("destination_port", 0),
-
         IntField("sequence_number", 0),
-
         IntField("acknowledgment_number", 0),
-
         ByteField("flags", 0),
-
         ShortField("window_size", 0),
-
         ShortField("checksum", 0),
     ]
-
-
-bind_layers(
-    IP,
-    TTP,
-    proto=253
-)
-
-
-def hexdump(data: bytes, width: int = 16):
-
-    for offset in range(0, len(data), width):
-
-        chunk = data[offset:offset + width]
-
-        hex_bytes = " ".join(
-            f"{byte:02X}"
-            for byte in chunk
-        )
-
-        ascii_bytes = "".join(
-            chr(byte) if 32 <= byte <= 126 else "."
-            for byte in chunk
-        )
-
-        print(
-            f"{offset:04X}  "
-            f"{hex_bytes:<48}  "
-            f"{ascii_bytes}"
-        )
-
-
-def identify_payload(data: bytes):
-
-    if not data:
-        return "Sem payload"
-
-    try:
-
-        text = data.decode("utf-8")
-
-        if text.isprintable():
-            return "Texto UTF-8"
-
-    except UnicodeDecodeError:
-
-        pass
-
-    if data.startswith(b"GET"):
-        return "HTTP Request"
-
-    if data.startswith(b"POST"):
-        return "HTTP Request"
-
-    if data.startswith(b"HTTP"):
-        return "HTTP Response"
-
-    if data.startswith(b"{"):
-        return "JSON"
-
-    if data.startswith(b"["):
-        return "JSON"
-
-    return "Dados Binários"
-
 
 def get_direction(ip, source_port, destination_port):
 
@@ -107,51 +29,6 @@ def get_direction(ip, source_port, destination_port):
         return "CLIENTE → SERVIDOR"
 
     return "SERVIDOR → CLIENTE"
-
-
-def print_payload(payload: bytes):
-
-    print(
-        f"Payload     : "
-        f"{len(payload)} bytes"
-    )
-
-    if not payload:
-        return
-
-    try:
-        payload_type = identify_payload(payload)
-
-        print(
-            f"Tipo        : "
-            f"{payload_type}"
-        )
-
-        print()
-
-        if payload_type == "Texto UTF-8":
-            print("Conteúdo")
-            print("-" * 40)
-            print(
-                payload.decode(
-                    "utf-8",
-                    errors="replace"
-                )
-            )
-            print("-" * 40)
-
-        else:
-            print("Hexdump")
-            print("-" * 40)
-            hexdump(payload)
-            print("-" * 40)
-    except Exception as e:
-        print(f"Erro ao processar payload: {e}")
-        print("Hexdump")
-        print("-" * 40)
-        hexdump(payload)
-        print("-" * 40)
-
 
 def analyze_tcp(pkt):
 
@@ -185,13 +62,7 @@ def analyze_tcp(pkt):
 
     print("TCP")
 
-    print(
-        get_direction(
-            ip,
-            tcp.sport,
-            tcp.dport
-        )
-    )
+    print(get_direction(ip, tcp.sport, tcp.dport))
 
     print()
 
@@ -421,55 +292,3 @@ def analyze_ttp(pkt):
     print_payload(
         bytes(ttp.payload)
     )
-
-
-def callback(pkt):
-    try:
-        if IP not in pkt:
-            return
-
-        ip = pkt[IP]
-
-        # TTP possui prioridade porque não é TCP nem UDP
-        if ip.proto == TTP_PROTOCOL:
-            analyze_ttp(pkt)
-            return
-
-        if TCP in pkt:
-            tcp = pkt[TCP]
-
-            if SERVER_PORT not in (
-                tcp.sport,
-                tcp.dport
-            ):
-                return
-
-            analyze_tcp(pkt)
-            return
-
-        if UDP in pkt:
-            udp = pkt[UDP]
-
-            if SERVER_PORT not in (
-                udp.sport,
-                udp.dport
-            ):
-                return
-
-            analyze_udp(pkt)
-            return
-    except Exception as e:
-        print(f"Erro ao processar pacote: {e}")
-        return
-
-
-try:
-    sniff(
-        iface="lo",
-        prn=callback,
-        store=False
-    )
-except KeyboardInterrupt:
-    print("\nCaptura interrompida pelo usuário")
-except Exception as e:
-    print(f"Erro durante a captura: {e}")
