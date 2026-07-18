@@ -2,6 +2,7 @@ from scapy.all import IP, TCP, UDP
 from utils import print_payload
 from scapy.fields import (ShortField, IntField, ByteField)
 from scapy.packet import Packet
+from proto.ttp import TTPFlags
 
 SERVER_PORT = 8443
 TTP_PROTOCOL = 253
@@ -277,17 +278,30 @@ def analyze_ttp(pkt):
         f"0x{ttp.checksum:04X}"
     )
 
-    print()
-    # if TTPFlags.SYN in str(ttp.flags):
-    #     print("Evento      : SYN")
-    # elif TTPFlags.FIN in str(ttp.flags):
-    #     print("Evento      : FIN")
-    # elif TTPFlags.RST in str(ttp.flags):
-    #     print("Evento      : RST")
-    # elif TTPFlags.ACK in str(ttp.flags):
-    #     print("Evento      : ACK")
-    # elif TTPFlags.DATA in str(ttp.flags):
-    #     print("Evento      : DATA")
+    flags = TTPFlags(ttp.flags)
+
+    print(
+        f"Flags       : "
+        f"{flags}"
+    )
+
+    if flags == TTPFlags.NONE:
+        print("Evento      : NONE")
+    else:
+        events = []
+
+        if TTPFlags.SYN in flags:
+            events.append("SYN")
+        if TTPFlags.ACK in flags:
+            events.append("ACK")
+        if TTPFlags.FIN in flags:
+            events.append("FIN")
+        if TTPFlags.RST in flags:
+            events.append("RST")
+        if TTPFlags.DATA in flags:
+            events.append("DATA")
+
+        print("Evento      : " + ", ".join(events))
 
     print_payload(
         bytes(ttp.payload)

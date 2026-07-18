@@ -1,9 +1,8 @@
 import socket
 import struct
-
+from proto.ttp import TTPPacket
 
 TTP_PROTOCOL = 253
-
 
 def checksum(data: bytes) -> int:
 
@@ -34,9 +33,7 @@ def build_ipv4_header(
 
     ihl = 5
 
-    version_ihl = (
-        (version << 4) | ihl
-    )
+    version_ihl = ((version << 4) | ihl)
 
     tos = 0
 
@@ -50,13 +47,9 @@ def build_ipv4_header(
 
     header_checksum = 0
 
-    source_address = socket.inet_aton(
-        source_ip
-    )
+    source_address = socket.inet_aton(source_ip)
 
-    destination_address = socket.inet_aton(
-        destination_ip
-    )
+    destination_address = socket.inet_aton(destination_ip)
 
     header = struct.pack(
         "!BBHHHBBH4s4s",
@@ -104,8 +97,6 @@ def build_ipv4_header(
 
     return header
 
-# ipv4.py
-
 def build_ttp_checksum_data(
     source_ip: str,
     destination_ip: str,
@@ -142,10 +133,36 @@ def calculate_ttp_checksum(
 
     return checksum(data)
 
-# ipv4.py
+def validate_ttp_checksum(
+    source_ip: str,
+    destination_ip: str,
+    ttp_packet: TTPPacket,
+) -> bool:
 
-from proto.ttp import TTPPacket
+    received_checksum = (
+        ttp_packet.checksum
+    )
 
+    ttp_packet.checksum = 0
+
+    ttp_data = ttp_packet.pack()
+
+    calculated_checksum = (
+        calculate_ttp_checksum(
+            source_ip,
+            destination_ip,
+            ttp_data,
+        )
+    )
+
+    ttp_packet.checksum = (
+        received_checksum
+    )
+
+    return (
+        received_checksum
+        == calculated_checksum
+    )
 
 def build_ttp_ipv4_packet(
     source_ip: str,

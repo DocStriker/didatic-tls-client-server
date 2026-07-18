@@ -1,9 +1,20 @@
 import struct
-from enum import IntFlag
+from enum import IntFlag, IntEnum
+
+class TTPState(IntEnum):
+
+    CLOSED = 0
+
+    SYN_SENT = 1
+
+    SYN_RECEIVED = 2
+
+    ESTABLISHED = 3
 
 class TTPFlags(IntFlag):
 
     NONE = 0x00
+    
     SYN = 0x01
     ACK = 0x02
     FIN = 0x04
@@ -63,9 +74,7 @@ class TTPPacket:
     def unpack(cls, data: bytes):
 
         if len(data) < cls.HEADER_SIZE:
-            raise ValueError(
-                "Pacote TTP menor que o cabeçalho."
-            )
+            raise ValueError("Pacote TTP menor que o cabeçalho.")
 
         header = data[:cls.HEADER_SIZE]
 
