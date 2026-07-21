@@ -1,7 +1,7 @@
 import socket
 from proto.trp import TRPSocket, TRPRecord, RecordType
-from ip.ipv4 import build_ttp_ipv4_packet, extract_ttp_from_ipv4, TTP_PROTOCOL
-from proto.ttp import TTPPacket, TTPFlags, TTPState
+from ttp.ipv4 import build_ttp_ipv4_packet, extract_ttp_from_ipv4, TTP_PROTOCOL
+from ttp.packet import TTPPacket, TTPFlags, TTPState
 import random
 
 SOURCE_IP = "127.0.0.1"
@@ -36,7 +36,6 @@ def ttp_client(message: str) -> None:
     # ==================================================
 
     syn_packet = TTPPacket(
-
         source_port=SOURCE_PORT,
         destination_port=DESTINATION_PORT,
         sequence_number=client_sequence,
@@ -77,7 +76,10 @@ def ttp_client(message: str) -> None:
         if packet.destination_port != (SOURCE_PORT):
             continue
         
-        if not (packet.flags & TTPFlags.SYN_ACK):
+        if not (packet.flags & TTPFlags.SYN):
+            continue
+
+        if not (packet.flags & TTPFlags.ACK):
             continue
 
         expected_ack = (client_sequence + 1)

@@ -1,17 +1,16 @@
 import socket
 import random
 
-from ip.ipv4 import (
+from ttp.ipv4 import (
     TTP_PROTOCOL,
     build_ttp_ipv4_packet,
     validate_ttp_checksum,
     extract_ttp_from_ipv4
 )
 
-from proto.ttp import TTPPacket, TTPFlags, TTPState
+from ttp.packet import TTPPacket, TTPFlags, TTPState
 
 SERVER_IP = "127.0.0.1"
-
 
 def server_ttp(host: str, port: int) -> None:
     send_sock = socket.socket(
@@ -90,7 +89,7 @@ def server_ttp(host: str, port: int) -> None:
                 destination_port=packet.source_port,
                 sequence_number=server_sequence,
                 acknowledgment_number=client_sequence + 1,
-                flags=TTPFlags.SYN_ACK,
+                flags=(TTPFlags.SYN | TTPFlags.ACK),
                 window_size=65535,
                 payload=b"",
             )

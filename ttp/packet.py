@@ -20,7 +20,6 @@ class TTPFlags(IntFlag):
     FIN = 0x04
     RST = 0x08
     DATA = 0x10
-    SYN_ACK = 0x09
 
 class TTPPacket:
 

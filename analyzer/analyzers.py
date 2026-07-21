@@ -2,7 +2,7 @@ from scapy.all import IP, TCP, UDP
 from utils import print_payload
 from scapy.fields import (ShortField, IntField, ByteField)
 from scapy.packet import Packet
-from proto.ttp import TTPFlags
+from ttp.packet import TTPFlags
 
 SERVER_PORT = 8443
 TTP_PROTOCOL = 253
