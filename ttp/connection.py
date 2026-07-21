@@ -242,7 +242,7 @@ class TTPConnection:
             "[TTP] SYN recebido."
         )
 
-        self.remote_ip = self.socket.last_ipv4.source_ip
+        self.remote_ip = self.socket.source_ip
         self.remote_port = syn.source_port
 
         self.acknowledgment_number = (

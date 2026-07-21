@@ -1,150 +1,22 @@
 import socket
 from proto.trp import TRPSocket, TRPRecord, RecordType
-from ttp.ipv4 import build_ttp_ipv4_packet, extract_ttp_from_ipv4, TTP_PROTOCOL
-from ttp.packet import TTPPacket, TTPFlags, TTPState
-import random
-
-SOURCE_IP = "127.0.0.1"
-DESTINATION_IP = "127.0.0.1"
-
-SOURCE_PORT = 50000
-DESTINATION_PORT = 8443
+from ttp.connection import TTPConnection
 
 def ttp_client(message: str) -> None:
-    sock = socket.socket(
-        socket.AF_INET,
-        socket.SOCK_RAW,
-        socket.IPPROTO_RAW,
+    connection = TTPConnection(
+    local_ip="127.0.0.1",
+    remote_ip="127.0.0.1",
+    local_port=50000,
+    remote_port=8443,
+)
+
+    connection.connect()
+
+    connection.send(
+        "Olá servidor!"
     )
 
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
-
-    recv_sock = socket.socket(
-        socket.AF_INET,
-        socket.SOCK_RAW,
-        TTP_PROTOCOL,
-    )
-
-    state = TTPState.CLOSED
-
-    client_sequence = random.randint(0, 2**32 - 1,)
-
-    print(f"[TTP] Estado: {state.name}")
-
-    # ==================================================
-    # 1. CLIENTE ENVIA SYN
-    # ==================================================
-
-    syn_packet = TTPPacket(
-        source_port=SOURCE_PORT,
-        destination_port=DESTINATION_PORT,
-        sequence_number=client_sequence,
-        acknowledgment_number=0,
-        flags=TTPFlags.SYN,
-        window_size=65535,
-        payload=b"",
-    )
-
-    raw_syn = build_ttp_ipv4_packet(
-        source_ip=SOURCE_IP,
-        destination_ip=DESTINATION_IP,
-        ttp_packet=syn_packet,
-    )
-
-    sock.sendto(raw_syn,(DESTINATION_IP, 0))
-
-    state = TTPState.SYN_SENT
-
-    print("[TTP] SYN enviado.")
-
-    print(f"[TTP] Estado: {state.name}")
-
-    # ==================================================
-    # 2. CLIENTE ESPERA SYN-ACK
-    # ==================================================
-    
-    while True:
-        
-        raw_packet, address = (recv_sock.recvfrom(65535))
-
-        source_ip = address[0]
-
-        ttp_data = extract_ttp_from_ipv4(raw_packet)
-
-        packet = TTPPacket.unpack(ttp_data)
-
-        if packet.destination_port != (SOURCE_PORT):
-            continue
-        
-        if not (packet.flags & TTPFlags.SYN):
-            continue
-
-        if not (packet.flags & TTPFlags.ACK):
-            continue
-
-        expected_ack = (client_sequence + 1)
-
-        if (packet.acknowledgment_number != expected_ack):
-            print("[TTP] ACK inválido.")
-            continue
-
-        server_sequence = (packet.sequence_number)
-
-        print("[TTP] SYN-ACK recebido.")
-
-        break
-
-    # ==================================================
-    # 3. CLIENTE ENVIA ACK FINAL
-    # ==================================================
-
-    ack_packet = TTPPacket(
-        source_port=SOURCE_PORT,
-        destination_port=DESTINATION_PORT,
-        sequence_number=(client_sequence + 1),
-        acknowledgment_number=(server_sequence + 1),
-        flags=TTPFlags.ACK,
-        window_size=65535,
-        payload=b"",
-    )
-
-    raw_ack = build_ttp_ipv4_packet(
-        source_ip=SOURCE_IP,
-        destination_ip=DESTINATION_IP,
-        ttp_packet=ack_packet,
-    )
-
-    sock.sendto(raw_ack, (DESTINATION_IP, 0))
-
-    state = TTPState.ESTABLISHED
-
-    print("[TTP] ACK final enviado.")
-
-    print(f"[TTP] Estado: {state.name}")
-
-    # ==================================================
-    # 4. ENVIA DATA
-    # ==================================================
-
-    data_packet = TTPPacket(
-        source_port=SOURCE_PORT,
-        destination_port=DESTINATION_PORT,
-        sequence_number=(client_sequence + 1),
-        acknowledgment_number=(server_sequence + 1),
-        flags=TTPFlags.DATA,
-        window_size=65535,
-        payload=message.encode("utf-8"),
-    )
-
-    raw_data = build_ttp_ipv4_packet(
-        source_ip=SOURCE_IP,
-        destination_ip=DESTINATION_IP,
-        ttp_packet=data_packet,
-    )
-
-    sock.sendto(raw_data, (DESTINATION_IP, 0))
-
-    print("[TTP] DATA enviada.")
+    connection.close()
 
 def tcp_client(host: str, port: int, message: str) -> None:
     with socket.create_connection((host, port), timeout=10) as client_socket:
