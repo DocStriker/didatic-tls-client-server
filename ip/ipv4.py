@@ -193,3 +193,26 @@ def build_ttp_ipv4_packet(
     )
 
     return ip_header + ttp_data
+
+def extract_ttp_from_ipv4(raw_packet: bytes) -> bytes:
+            if len(raw_packet) < 20:
+                raise ValueError("Pacote IPv4 muito pequeno.")
+
+            version_ihl = raw_packet[0]
+
+            version = version_ihl >> 4
+
+            if version != 4:
+                raise ValueError(
+                    f"IPv4 inválido. "
+                    f"Version={version}"
+                )
+
+            ihl = version_ihl & 0x0F
+
+            ip_header_size = ihl * 4
+
+            if len(raw_packet) < ip_header_size:
+                raise ValueError("Pacote menor que o cabeçalho IPv4.")
+
+            return raw_packet[ip_header_size:]

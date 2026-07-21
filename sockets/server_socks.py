@@ -1,124 +1,75 @@
 import socket
 import random
+
 from ip.ipv4 import (
     TTP_PROTOCOL,
     build_ttp_ipv4_packet,
-    validate_ttp_checksum
+    validate_ttp_checksum,
+    extract_ttp_from_ipv4
 )
 
 from proto.ttp import TTPPacket, TTPFlags, TTPState
 
 SERVER_IP = "127.0.0.1"
 
+
 def server_ttp(host: str, port: int) -> None:
-    sock = socket.socket(
+    send_sock = socket.socket(
         socket.AF_INET,
-
         socket.SOCK_RAW,
+        socket.IPPROTO_RAW,
+    )
 
+    send_sock.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+
+    recv_sock = socket.socket(
+        socket.AF_INET,
+        socket.SOCK_RAW,
         TTP_PROTOCOL,
     )
 
     state = TTPState.CLOSED
 
-    print(
-        "[TTP] Aguardando SYN..."
-    )
+    print("[TTP] Aguardando SYN...")
 
-    print(
-        f"[TTP] Estado: {state.name}"
-    )
+    print(f"[TTP] Estado: {state.name}")
 
     while True:
+        raw_packet, adress = recv_sock.recvfrom(65535)
 
-        raw_packet, address = (
-            sock.recvfrom(65535)
-        )
+        source_ip = adress[0]
 
-        source_ip = address[0]
-
-        version_ihl = (
-            raw_packet[0]
-        )
-
-        ihl = (
-            version_ihl
-            & 0x0F
-        )
-
-        ip_header_size = (
-            ihl * 4
-        )
-
-        ttp_data = raw_packet[
-            ip_header_size:
-        ]
-
-        packet = TTPPacket.unpack(
-            ttp_data
-        )
+        ttp_data = extract_ttp_from_ipv4(raw_packet)
+        
+        packet = TTPPacket.unpack(ttp_data)
 
         # ==================================================
         # FILTRAR PORTA DESTINO
         # ==================================================
 
         if packet.destination_port != port:
-
             continue
 
         # ==================================================
         # VALIDAR CHECKSUM
         # ==================================================
 
-        valid_checksum = (
-            validate_ttp_checksum(
-
-                source_ip,
-
-                SERVER_IP,
-
-                packet,
-            )
-        )
+        valid_checksum = (validate_ttp_checksum(source_ip, SERVER_IP, packet))
 
         if not valid_checksum:
-
-            print(
-                "[TTP] Checksum inválido."
-            )
-
+            print("[TTP] Checksum inválido.")
             continue
 
         # ==================================================
         # 1. RECEBE SYN
         # ==================================================
 
-        if (
+        if (state == TTPState.CLOSED and packet.flags == TTPFlags.SYN):
+            client_sequence = (packet.sequence_number)
 
-            state
-            == TTPState.CLOSED
+            server_sequence = (random.randint(0, 2**32 - 1,))
 
-            and
-
-            packet.flags
-            == TTPFlags.SYN
-
-        ):
-
-            client_sequence = (
-                packet.sequence_number
-            )
-
-            server_sequence = (
-                random.randint(
-                    0,
-                    2**32 - 1,
-                )
-            )
-
-            print(
-                "[TTP] SYN recebido."
-            )
+            print("[TTP] SYN recebido.")
 
             print(
                 f"[TTP] Client SEQ: "
@@ -135,63 +86,28 @@ def server_ttp(host: str, port: int) -> None:
             # ==========================================
 
             syn_ack_packet = TTPPacket(
-
-                source_port=port,
-
-                destination_port=(
-                    packet.source_port
-                ),
-
-                sequence_number=(
-                    server_sequence
-                ),
-
-                acknowledgment_number=(
-
-                    client_sequence
-                    + 1
-                ),
-
-                flags=(
-
-                    TTPFlags.SYN
-                    | TTPFlags.ACK
-                ),
-
+                source_port=packet.destination_port,
+                destination_port=packet.source_port,
+                sequence_number=server_sequence,
+                acknowledgment_number=client_sequence + 1,
+                flags=TTPFlags.SYN_ACK,
                 window_size=65535,
-
                 payload=b"",
             )
 
             raw_syn_ack = (
                 build_ttp_ipv4_packet(
-
                     source_ip=SERVER_IP,
-
                     destination_ip=source_ip,
-
                     ttp_packet=syn_ack_packet,
                 )
             )
 
-            sock.sendto(
+            send_sock.sendto(raw_syn_ack, (source_ip, 0))
 
-                raw_syn_ack,
+            state = (TTPState.SYN_RECEIVED)
 
-                (
-                    source_ip,
-
-                    0,
-                ),
-            )
-
-            state = (
-                TTPState.SYN_RECEIVED
-            )
-
-            print(
-                "[TTP] SYN-ACK enviado."
-            )
+            print("[TTP] SYN-ACK enviado.")
 
             print(
                 f"[TTP] Estado: "
@@ -204,43 +120,17 @@ def server_ttp(host: str, port: int) -> None:
         # 2. RECEBE ACK FINAL
         # ==================================================
 
-        if (
+        if (state == TTPState.SYN_RECEIVED and packet.flags == TTPFlags.ACK):
+            expected_ack = (server_sequence + 1)
 
-            state
-            == TTPState.SYN_RECEIVED
-
-            and
-
-            packet.flags
-            == TTPFlags.ACK
-
-        ):
-
-            expected_ack = (
-                server_sequence
-                + 1
-            )
-
-            if (
-
-                packet.acknowledgment_number
-                != expected_ack
-
-            ):
-
-                print(
-                    "[TTP] ACK inválido."
-                )
+            if (packet.acknowledgment_number != expected_ack):
+                print("[TTP] ACK inválido.")
 
                 continue
 
-            state = (
-                TTPState.ESTABLISHED
-            )
+            state = (TTPState.ESTABLISHED)
 
-            print(
-                "[TTP] ACK final recebido."
-            )
+            print("[TTP] ACK final recebido.")
 
             print(
                 f"[TTP] Estado: "
@@ -253,25 +143,12 @@ def server_ttp(host: str, port: int) -> None:
         # 3. RECEBE DATA
         # ==================================================
 
-        if (
-
-            state
-            == TTPState.ESTABLISHED
-
-            and
-
-            packet.flags
-            == TTPFlags.DATA
-
-        ):
-
-            print(
-                "[TTP] DATA recebida."
-            )
+        if (state == TTPState.ESTABLISHED and packet.flags == TTPFlags.DATA):
+            print("[TTP] DATA recebida.")
 
             print(
                 f"[TTP] Payload: "
-                f"{packet.payload!r}"
+                f"{packet.payload.decode('utf-8')}"
             )
 
 def handle_client(conn: socket.socket, address: tuple[str, int]) -> None:
