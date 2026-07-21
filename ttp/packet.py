@@ -106,3 +106,54 @@ class TTPPacket:
             payload=payload,
             checksum=checksum,
         )
+    
+    @property
+    def payload_size(self) -> int:
+        return len(self.payload)
+    
+    @property
+    def segment_size(self) -> int:
+        return self.HEADER_SIZE + len(self.payload)
+    
+    @property
+    def is_syn(self):
+        return bool(self.flags & TTPFlags.SYN)
+    
+    @property
+    def is_ack(self):
+        return bool(self.flags & TTPFlags.ACK)
+    
+    @property
+    def is_fin(self):
+        return bool(self.flags & TTPFlags.FIN)
+
+    @property
+    def is_rst(self):
+        return bool(self.flags & TTPFlags.RST)
+
+    @property
+    def is_data(self):
+        return bool(self.flags & TTPFlags.DATA)
+
+    def __repr__(self):
+        return (
+            f"TTPPacket("
+            f"{self.source_port} -> "
+            f"{self.destination_port}, "
+            f"SEQ={self.sequence_number}, "
+            f"ACK={self.acknowledgment_number}, "
+            f"FLAGS={self.flags}, "
+            f"PAYLOAD={len(self.payload)} bytes)"
+        )
+    
+    def copy(self):
+        return TTPPacket(
+            source_port=self.source_port,
+            destination_port=self.destination_port,
+            sequence_number=self.sequence_number,
+            acknowledgment_number=self.acknowledgment_number,
+            flags=self.flags,
+            window_size=self.window_size,
+            payload=self.payload,
+            checksum=self.checksum,
+        )
