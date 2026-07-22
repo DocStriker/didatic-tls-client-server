@@ -154,7 +154,7 @@ class TTPConnection:
                 packet.source_port
             )
 
-            return packet
+            return packet, ipv4
         
     def connect(self):
         if self.state != TTPState.CLOSED:
@@ -177,7 +177,7 @@ class TTPConnection:
             self.state.name,
         )
 
-        syn_ack = self._wait_for_packet(
+        syn_ack, ipv4 = self._wait_for_packet(
             TTPFlags.SYN | TTPFlags.ACK
         )
 
@@ -215,6 +215,8 @@ class TTPConnection:
             self.state.name,
         )
 
+        return self
+
     def accept(self):
         """
         Aguarda uma conexão de entrada.
@@ -234,7 +236,7 @@ class TTPConnection:
             self.state.name,
         )
 
-        syn = self._wait_for_packet(
+        syn, ipv4 = self._wait_for_packet(
             TTPFlags.SYN
         )
 
@@ -242,7 +244,7 @@ class TTPConnection:
             "[TTP] SYN recebido."
         )
 
-        self.remote_ip = self.socket.source_ip
+        self.remote_ip = ipv4.source_ip
         self.remote_port = syn.source_port
 
         self.acknowledgment_number = (
@@ -260,7 +262,7 @@ class TTPConnection:
             self.state.name,
         )
 
-        ack = self._wait_for_packet(
+        ack, ipv4 = self._wait_for_packet(
             TTPFlags.ACK
         )
 
@@ -344,7 +346,7 @@ class TTPConnection:
 
         while True:
 
-            packet = self._wait_for_packet()
+            packet, ipv4 = self._wait_for_packet()
 
             if not packet.is_data:
                 continue
@@ -385,3 +387,7 @@ class TTPConnection:
         self.close()
 
         return False
+
+    @property
+    def connected(self):
+        return self.state == TTPState.ESTABLISHED

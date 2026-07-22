@@ -31,7 +31,7 @@ def get_direction(ip, source_port, destination_port):
 
     return "SERVIDOR → CLIENTE"
 
-def analyze_tcp(pkt):
+def capture_tcp(pkt):
 
     ip = pkt[IP]
     tcp = pkt[TCP]
@@ -132,7 +132,7 @@ def analyze_tcp(pkt):
     print_payload(payload)
 
 
-def analyze_udp(pkt):
+def capture_udp(pkt):
 
     ip = pkt[IP]
     udp = pkt[UDP]
@@ -199,7 +199,7 @@ def analyze_udp(pkt):
     print_payload(payload)
 
 
-def analyze_ttp(pkt):
+def capture_ttp(pkt):
 
     ip = pkt[IP]
     ttp = pkt[TTP]

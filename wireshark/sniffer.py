@@ -8,7 +8,7 @@ if str(ROOT) not in sys.path:
 from scapy.all import sniff
 from scapy.layers.inet import IP, TCP, UDP
 from scapy.packet import bind_layers
-from analyzers import analyze_tcp, analyze_udp, analyze_ttp, SERVER_PORT, TTP_PROTOCOL, TTP
+from wireshark.capture import analyze_tcp, analyze_udp, analyze_ttp, SERVER_PORT, TTP_PROTOCOL, TTP
 
 bind_layers(IP, TTP, proto=253)
 
