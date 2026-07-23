@@ -8,7 +8,7 @@ if str(ROOT) not in sys.path:
 from scapy.all import sniff
 from scapy.layers.inet import IP, TCP, UDP
 from scapy.packet import bind_layers
-from wireshark.capture import analyze_tcp, analyze_udp, analyze_ttp, SERVER_PORT, TTP_PROTOCOL, TTP
+from wireshark.capture import capture_tcp, capture_udp, capture_ttp, SERVER_PORT, TTP_PROTOCOL, TTP
 
 bind_layers(IP, TTP, proto=253)
 
@@ -21,7 +21,7 @@ def callback(pkt):
 
         # TTP possui prioridade porque não é TCP nem UDP
         if ip.proto == TTP_PROTOCOL:
-            analyze_ttp(pkt)
+            capture_ttp(pkt)
             return
 
         if TCP in pkt:
@@ -33,7 +33,7 @@ def callback(pkt):
             ):
                 return
 
-            analyze_tcp(pkt)
+            capture_tcp(pkt)
             return
 
         if UDP in pkt:
@@ -45,7 +45,7 @@ def callback(pkt):
             ):
                 return
 
-            analyze_udp(pkt)
+            capture_udp(pkt)
             return
     except Exception as e:
         print(f"Erro ao processar pacote: {e}")

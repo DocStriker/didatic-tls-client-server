@@ -1,6 +1,6 @@
 import socket
 
-def tcp_client(host: str, port: int, message: str) -> None:
+def client(host: str, port: int, message: str) -> None:
     with socket.create_connection((host, port), timeout=10) as client_socket:
         print(f"[cliente] conectado em {host}:{port}")
 
@@ -23,7 +23,7 @@ def handle_client(conn: socket.socket, address: tuple[str, int]) -> None:
     
     conn.sendall(response.encode("utf-8"))
 
-def tcp_server(host: str, port: int) -> None:
+def server(host: str, port: int) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.bind((host, port))
         server.listen()

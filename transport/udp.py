@@ -1,6 +1,6 @@
 import socket
 
-def udp_client(host: str, port: int, message: str) -> None:
+def client(host: str, port: int, message: str) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
         client.sendto(message.encode("utf-8"), (host, port))
 
@@ -8,7 +8,7 @@ def udp_client(host: str, port: int, message: str) -> None:
 
         print(f"[cliente] resposta: {data.decode('utf-8').strip()} from {addr}")
 
-def udp_server(host: str, port: int) -> None:
+def server(host: str, port: int) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server:
         server.bind((host, port))
 

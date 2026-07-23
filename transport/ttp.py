@@ -1,11 +1,11 @@
 from ttp.connection import TTPConnection
 
-def ttp_client(message: str) -> None:
+def client(host: str, port: int, message: str) -> None:
     connection = TTPConnection(
-    local_ip="127.0.0.1",
-    remote_ip="127.0.0.1",
+    local_ip=host,
+    remote_ip=host,
     local_port=50000,
-    remote_port=8443,
+    remote_port=port,
 )
 
     connection.connect()
@@ -16,7 +16,7 @@ def ttp_client(message: str) -> None:
 
 from ttp.connection import TTPConnection
 
-def ttp_server(host: str, port: int) -> None:
+def server(host: str, port: int) -> None:
     listener = TTPConnection(
         local_ip=host,
         local_port=port,

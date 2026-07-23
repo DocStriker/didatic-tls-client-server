@@ -1,14 +1,23 @@
-from transport.tcp import tcp_server
-from transport.udp import udp_server
-from transport.ttp import ttp_server
+from transport import tcp
+from transport import udp
+from transport import ttp
 
 def serve(protocol: str, host: str, port: int) -> None:
+    PROTOCOLS = {
 
-    if protocol == "TCP":
-        tcp_server(host, port)
+    "TCP": tcp.server,
 
-    elif protocol == "UDP":
-        udp_server(host, port)
+    "UDP": udp.server,
 
-    elif protocol == "TTP":
-        ttp_server(host, port)
+    "TTP": ttp.server,
+}
+
+    protocol = protocol.upper()
+
+    try:
+        handler = PROTOCOLS[protocol]
+
+    except KeyError:
+        raise ValueError(f"Protocolo '{protocol}' não suportado.")
+
+    handler(host, port)
