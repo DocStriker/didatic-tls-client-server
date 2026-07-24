@@ -96,6 +96,7 @@ class TTPPacket:
             window_size,
             payload_length,
             checksum,
+
         ) = struct.unpack(
             cls.HEADER_FORMAT,
             header
@@ -156,6 +157,22 @@ class TTPPacket:
     @property
     def is_data(self):
         return bool(self.flags & TTPFlags.DATA)
+
+    @property
+    def sequence_space(self) -> int:
+        """
+        Quantidade de números de sequência consumidos por este pacote.
+        """
+
+        size = len(self.payload)
+
+        if self.is_syn:
+            size += 1
+
+        if self.is_fin:
+            size += 1
+
+        return size
 
     def __repr__(self):
         return (
