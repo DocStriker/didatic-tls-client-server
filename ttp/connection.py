@@ -80,6 +80,8 @@ class TTPConnection:
             window_size=self.window_size,
         )
 
+        print(packet.__repr__)
+
         self.socket.send_packet(
 
             source_ip=self.local_ip,

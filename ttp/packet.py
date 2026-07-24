@@ -4,11 +4,8 @@ from enum import IntFlag, IntEnum
 class TTPState(IntEnum):
 
     CLOSED = 0
-
     SYN_SENT = 1
-
     SYN_RECEIVED = 2
-
     ESTABLISHED = 3
 
 class TTPFlags(IntFlag):
@@ -23,7 +20,7 @@ class TTPFlags(IntFlag):
 
 class TTPPacket:
 
-    HEADER_FORMAT = "!HHIIBHH"
+    HEADER_FORMAT = "!HHIIBBHHHI"
 
     HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 
@@ -46,12 +43,19 @@ class TTPPacket:
         self.acknowledgment_number = acknowledgment_number
 
         self.flags = flags
-        self.window_size = window_size
+        self.header_length = self.HEADER_SIZE
+        self.reserved = 0
+
+        self.window = window_size
 
         self.payload = payload
         self.checksum = checksum
 
     def pack(self) -> bytes:
+        if self.payload_length > 0xFFFF:
+            raise ValueError(
+                "Payload excede o tamanho máximo suportado (65535 bytes)."
+            )
 
         header = struct.pack(
             self.HEADER_FORMAT,
@@ -63,8 +67,11 @@ class TTPPacket:
             self.acknowledgment_number,
 
             self.flags,
+            self.header_length,
+            self.reserved,
 
-            self.window_size,
+            self.window,
+            self.payload_length,
             self.checksum,
         )
 
@@ -84,36 +91,51 @@ class TTPPacket:
             sequence_number,
             acknowledgment_number,
             flags,
+            header_length,
+            reserved,
             window_size,
+            payload_length,
             checksum,
         ) = struct.unpack(
             cls.HEADER_FORMAT,
             header
         )
 
-        payload = data[cls.HEADER_SIZE:]
+        expected_size = header_length + payload_length
 
-        return cls(
+        if len(data) < expected_size:
+            raise ValueError(
+                "Pacote TTP incompleto."
+            )
+
+        payload = data[
+            header_length:
+            expected_size
+        ]
+
+        packet = cls(
             source_port=source_port,
             destination_port=destination_port,
-
             sequence_number=sequence_number,
             acknowledgment_number=acknowledgment_number,
-
             flags=TTPFlags(flags),
-
             window_size=window_size,
             payload=payload,
             checksum=checksum,
         )
+
+        packet.header_length = header_length
+        packet.reserved = reserved
+
+        return packet
     
     @property
-    def payload_size(self) -> int:
+    def payload_length(self) -> int:
         return len(self.payload)
     
     @property
     def segment_size(self) -> int:
-        return self.HEADER_SIZE + len(self.payload)
+        return self.HEADER_SIZE + self.payload_length
     
     @property
     def is_syn(self):
@@ -143,7 +165,9 @@ class TTPPacket:
             f"SEQ={self.sequence_number}, "
             f"ACK={self.acknowledgment_number}, "
             f"FLAGS={self.flags}, "
-            f"PAYLOAD={len(self.payload)} bytes)"
+            f"PAYLOAD={self.payload_length} bytes, "
+            f"RESERVED={self.reserved}, "
+            f"HEADER_LENGHT={self.header_length} bytes)"
         )
     
     def copy(self):
@@ -153,7 +177,7 @@ class TTPPacket:
             sequence_number=self.sequence_number,
             acknowledgment_number=self.acknowledgment_number,
             flags=self.flags,
-            window_size=self.window_size,
+            window_size=self.window,
             payload=self.payload,
             checksum=self.checksum,
         )
