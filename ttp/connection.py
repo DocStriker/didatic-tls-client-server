@@ -20,34 +20,15 @@ class TTPConnection:
         self.sequence = SequenceSpace()
         self.socket = TTPSocket()
 
-    def _send_syn(self):
+    def _send_packet(self, flags: TTPFlags, payload: bytes = b"") -> TTPPacket:
         packet = TTPPacket(
             source_port=self.local_port,
             destination_port=self.remote_port,
             sequence_number=self.sequence.send_next,
             acknowledgment_number=self.sequence.recv_next,
-            flags=TTPFlags.SYN,
+            flags=flags,
             window_size=self.window_size,
-        )
-
-        self.socket.send_packet(
-            source_ip=self.local_ip,
-            destination_ip=self.remote_ip,
-            packet=packet,
-        )
-
-        self.sequence.advance_send(packet.sequence_space)
-
-        print("[TTP] SYN enviado.")
-
-    def _send_syn_ack(self):
-        packet = TTPPacket(
-            source_port=self.local_port,
-            destination_port=self.remote_port,
-            sequence_number=self.sequence.send_next,
-            acknowledgment_number=self.sequence.recv_next,
-            flags=TTPFlags.SYN | TTPFlags.ACK,
-            window_size=self.window_size,
+            payload=payload
         )
 
         print(packet.__repr__)
@@ -58,27 +39,14 @@ class TTPConnection:
             packet=packet,
         )
 
-        self.sequence.advance_send(packet.sequence_space)
+        if packet.is_syn:
+            self.sequence.advance_send(packet.sequence_space)
+            print("[TTP] SYN enviado.")
 
-        print("[TTP] SYN-ACK enviado.")
+        if packet.is_ack:
+            print("[TTP] ACK enviado.")
 
-    def _send_ack(self):
-        packet = TTPPacket(
-            source_port=self.local_port,
-            destination_port=self.remote_port,
-            sequence_number=self.sequence.send_next,
-            acknowledgment_number=self.sequence.recv_next,
-            flags=TTPFlags.ACK,
-            window_size=self.window_size,
-        )
-
-        self.socket.send_packet(
-            source_ip=self.local_ip,
-            destination_ip=self.remote_ip,
-            packet=packet,
-        )
-
-        print("[TTP] ACK enviado.")
+            print("[TTP] SYN-ACK enviado.")
 
     def _wait_for_packet(self, expected_flags: TTPFlags | None = None,) -> TTPPacket:
         while True:
@@ -105,7 +73,7 @@ class TTPConnection:
 
         print("[TTP] Estado:", self.state.name)
 
-        self._send_syn()
+        self._send_packet(TTPFlags.SYN)
 
         self.state = TTPState.SYN_SENT
 
@@ -120,7 +88,7 @@ class TTPConnection:
 
         self.sequence.recv_next = syn_ack.sequence_number + syn_ack.sequence_space
 
-        self._send_ack()
+        self._send_packet(TTPFlags.ACK)
 
         print("[TTP] ACK final enviado.")
 
@@ -151,7 +119,7 @@ class TTPConnection:
 
         self.sequence.recv_next = syn.sequence_number + syn.sequence_space
 
-        self._send_syn_ack()
+        self._send_packet(TTPFlags.SYN | TTPFlags.ACK)
 
         self.state = TTPState.SYN_RECEIVED
 
