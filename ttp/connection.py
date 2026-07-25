@@ -39,14 +39,10 @@ class TTPConnection:
             packet=packet,
         )
 
-        if packet.is_syn:
+        if packet.consumes_sequence:
             self.sequence.advance_send(packet.sequence_space)
-            print("[TTP] SYN enviado.")
 
-        if packet.is_ack:
-            print("[TTP] ACK enviado.")
-
-            print("[TTP] SYN-ACK enviado.")
+        return packet
 
     def _wait_for_packet(self, expected_flags: TTPFlags | None = None,) -> TTPPacket:
         while True:
@@ -66,6 +62,19 @@ class TTPConnection:
             self.remote_port = packet.source_port
 
             return packet, ipv4
+
+    def _wait_for_ack(self, packet: TTPPacket) -> None:
+        while True:
+            ack, _ = self._wait_for_packet(TTPFlags.ACK)
+        
+            if ack.acknowledgment_number != self.sequence.send_next:
+                raise RuntimeError("ACK inválido.")
+        
+            self.sequence.acknowledge(ack.acknowledgment_number)
+        
+            print("[TTP] ACK confirmado.")
+
+            return
         
     def connect(self):
         if self.state != TTPState.CLOSED:
@@ -89,8 +98,6 @@ class TTPConnection:
         self.sequence.recv_next = syn_ack.sequence_number + syn_ack.sequence_space
 
         self._send_packet(TTPFlags.ACK)
-
-        print("[TTP] ACK final enviado.")
 
         self.state = TTPState.ESTABLISHED
 
@@ -132,8 +139,6 @@ class TTPConnection:
 
         self.state = TTPState.ESTABLISHED
 
-        print("[TTP] ACK final recebido.")
-
         print("[TTP] Estado:", self.state.name)
 
         return self
@@ -142,25 +147,12 @@ class TTPConnection:
         if self.state != TTPState.ESTABLISHED:
             raise RuntimeError("Conexão não estabelecida.")
 
-        packet = TTPPacket(
-            source_port=self.local_port,
-            destination_port=self.remote_port,
-            sequence_number=self.sequence.send_next,
-            acknowledgment_number=self.sequence.recv_next,
-            flags=TTPFlags.DATA,
-            window_size=self.window_size,
-            payload=data,
-        )
-
-        self.socket.send_packet(
-            source_ip=self.local_ip,
-            destination_ip=self.remote_ip,
-            packet=packet,
-        )
-
-        self.sequence.advance_send(packet.sequence_space)
+        packet = self._send_packet(TTPFlags.DATA, data)
 
         print("[TTP] DATA enviada.")
+
+        self._wait_for_ack(packet)
+
 
     def recv(self) -> bytes:
         if self.state != TTPState.ESTABLISHED:
@@ -176,6 +168,10 @@ class TTPConnection:
                 raise RuntimeError("Número de sequência inesperado.")
 
             print("[TTP] DATA recebida.")
+
+            self._send_packet(TTPFlags.ACK)
+
+            print("[TTP] ACK enviado.")
 
             return packet.payload
         

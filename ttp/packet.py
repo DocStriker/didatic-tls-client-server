@@ -174,6 +174,14 @@ class TTPPacket:
 
         return size
 
+    @property
+    def consumes_sequence(self):
+        return (
+            self.is_syn
+            or self.is_fin
+            or self.is_data
+        )
+
     def __repr__(self):
         return (
             f"TTPPacket("
