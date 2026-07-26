@@ -2,6 +2,7 @@ from ttp.sequence import SequenceSpace, ReceiveStatus
 from ttp.packet import TTPPacket, TTPFlags,TTPState
 from ttp.socket import TTPSocket
 from ttp.retransmission import RetransmissionManager
+from ttp.window import SendWindow
 import socket
 
 class TTPConnection:
@@ -21,10 +22,8 @@ class TTPConnection:
         self.state = TTPState.CLOSED
         self.sequence = SequenceSpace()
         self.socket = TTPSocket()
-        self.retransmission = RetransmissionManager(
-        timeout=1.0,
-        max_retries=5,
-    )
+        self.retransmission = RetransmissionManager(timeout=1.0, max_retries=5)
+        self.window = SendWindow(window_size)
 
     def _transmit_packet(self, packet: TTPPacket) -> None:
         self.socket.send_packet(
@@ -44,7 +43,7 @@ class TTPConnection:
             payload=payload
         )
 
-        print(packet.__repr__)
+        #print(packet.__repr__)
 
         self._transmit_packet(packet)
 
@@ -80,6 +79,8 @@ class TTPConnection:
         self.retransmission.start()
 
         while True:
+            old_timeout = self.socket.receive_socket.gettimeout()
+
             self.socket.receive_socket.settimeout(0.1)
             
             try:
@@ -90,6 +91,8 @@ class TTPConnection:
             
                 self.sequence.acknowledge(ack.acknowledgment_number)
 
+                self.window.acknowledge(ack.acknowledgment_number)
+
                 self.retransmission.stop()
 
                 print("[TTP] ACK confirmado.")
@@ -97,19 +100,20 @@ class TTPConnection:
                 return
             
             except socket.timeout:
+                if not self.retransmission.expired:
+                    continue
+
                 if self.retransmission.exhausted:
                     raise TimeoutError("Falha na transmissão.")
 
-                if self.retransmission.expired:
-                    continue
-
                 print("[TTP] Timeout. Retransmitindo...")
 
-                self._transmit_packet(packet)
-                self.retransmission.restart()
+                for packet in self.window.packets_for_retransmission():
+                    self._transmit_packet(packet)
 
+                self.retransmission.restart()
             finally:
-                self.socket.receive_socket.settimeout(None)
+                self.socket.receive_socket.settimeout(old_timeout)
         
     def connect(self):
         if self.state != TTPState.CLOSED:
@@ -117,7 +121,7 @@ class TTPConnection:
 
         print("[TTP] Estado:", self.state.name)
 
-        self._send_packet(TTPFlags.SYN)
+        syn_packet = self._send_packet(TTPFlags.SYN)
 
         self.state = TTPState.SYN_SENT
 
@@ -182,7 +186,14 @@ class TTPConnection:
         if self.state != TTPState.ESTABLISHED:
             raise RuntimeError("Conexão não estabelecida.")
 
+        packet_size = len(data)
+
+        if not self.window.can_send(packet_size):
+            raise RuntimeError("Janela de envio cheia.")
+
         packet = self._send_packet(TTPFlags.DATA, data)
+
+        self.window.add(packet)
 
         print("[TTP] DATA enviada.")
 
@@ -199,10 +210,7 @@ class TTPConnection:
             if not packet.is_data:
                 continue
 
-            status = self.sequence.receive(
-                packet.sequence_number,
-                packet.sequence_space,
-            ) 
+            status = self.sequence.receive(packet.sequence_number, packet.sequence_space) 
 
             if status is ReceiveStatus.EXPECTED:
 

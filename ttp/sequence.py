@@ -36,6 +36,14 @@ class SequenceSpace:
 
         self.recv_next = 0
 
+        self.send_window = 4096
+
+    def can_send(self, size: int) -> bool:
+        return (
+            self.bytes_in_flight + size
+            <= self.send_window
+        )
+
     def receive(
         self,
         sequence_number: int,
