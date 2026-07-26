@@ -1,6 +1,14 @@
 from __future__ import annotations
-
 import random
+from enum import Enum
+
+class ReceiveStatus(Enum):
+
+    EXPECTED = 0
+
+    DUPLICATE = 1
+
+    FUTURE = 2
 
 class SequenceSpace:
     """
@@ -27,6 +35,25 @@ class SequenceSpace:
         self.send_next = initial_sequence
 
         self.recv_next = 0
+
+    def receive(
+        self,
+        sequence_number: int,
+        amount: int,
+    ) -> ReceiveStatus:
+
+        if sequence_number == self.recv_next:
+            self.recv_next += amount
+
+            return ReceiveStatus.EXPECTED
+
+
+        if sequence_number < self.recv_next:
+
+            return ReceiveStatus.DUPLICATE
+
+
+        return ReceiveStatus.FUTURE
 
     @property
     def bytes_in_flight(self) -> int:

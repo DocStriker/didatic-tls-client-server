@@ -1,4 +1,4 @@
-from ttp.sequence import SequenceSpace
+from ttp.sequence import SequenceSpace, ReceiveStatus
 from ttp.packet import TTPPacket, TTPFlags,TTPState
 from ttp.socket import TTPSocket
 from ttp.retransmission import RetransmissionManager
@@ -199,16 +199,34 @@ class TTPConnection:
             if not packet.is_data:
                 continue
 
-            if not self.sequence.expect(packet.sequence_number, packet.sequence_space):
-                raise RuntimeError("Número de sequência inesperado.")
+            status = self.sequence.receive(
+                packet.sequence_number,
+                packet.sequence_space,
+            ) 
 
-            print("[TTP] DATA recebida.")
+            if status is ReceiveStatus.EXPECTED:
 
-            self._send_packet(TTPFlags.ACK)
+                print("[TTP] DATA recebida.")
 
-            print("[TTP] ACK enviado.")
+                self._send_packet(TTPFlags.ACK)
 
-            return packet.payload
+                print("[TTP] ACK enviado.")
+
+                return packet.payload
+
+            if status is ReceiveStatus.DUPLICATE:
+
+                print("[TTP] Pacote duplicado.")
+
+                self._send_packet(TTPFlags.ACK)
+
+                continue
+
+            if status is ReceiveStatus.FUTURE:
+
+                print("[TTP] Pacote fora de ordem.")
+
+                continue
         
     def close(self):
 
