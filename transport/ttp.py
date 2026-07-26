@@ -14,8 +14,6 @@ def client(host: str, port: int, message: str) -> None:
 
     connection.close()
 
-from ttp.connection import TTPConnection
-
 def server(host: str, port: int) -> None:
     listener = TTPConnection(
         local_ip=host,

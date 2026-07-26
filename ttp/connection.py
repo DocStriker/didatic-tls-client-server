@@ -1,6 +1,8 @@
 from ttp.sequence import SequenceSpace
 from ttp.packet import TTPPacket, TTPFlags,TTPState
 from ttp.socket import TTPSocket
+from ttp.retransmission import RetransmissionManager
+import socket
 
 class TTPConnection:
     def __init__(
@@ -19,6 +21,17 @@ class TTPConnection:
         self.state = TTPState.CLOSED
         self.sequence = SequenceSpace()
         self.socket = TTPSocket()
+        self.retransmission = RetransmissionManager(
+        timeout=1.0,
+        max_retries=5,
+    )
+
+    def _transmit_packet(self, packet: TTPPacket) -> None:
+        self.socket.send_packet(
+            source_ip=self.local_ip,
+            destination_ip=self.remote_ip,
+            packet=packet,
+        )
 
     def _send_packet(self, flags: TTPFlags, payload: bytes = b"") -> TTPPacket:
         packet = TTPPacket(
@@ -33,11 +46,7 @@ class TTPConnection:
 
         print(packet.__repr__)
 
-        self.socket.send_packet(
-            source_ip=self.local_ip,
-            destination_ip=self.remote_ip,
-            packet=packet,
-        )
+        self._transmit_packet(packet)
 
         if packet.consumes_sequence:
             self.sequence.advance_send(packet.sequence_space)
@@ -63,18 +72,44 @@ class TTPConnection:
 
             return packet, ipv4
 
-    def _wait_for_ack(self, packet: TTPPacket) -> None:
-        while True:
-            ack, _ = self._wait_for_packet(TTPFlags.ACK)
-        
-            if ack.acknowledgment_number != self.sequence.send_next:
-                raise RuntimeError("ACK inválido.")
-        
-            self.sequence.acknowledge(ack.acknowledgment_number)
-        
-            print("[TTP] ACK confirmado.")
 
-            return
+    def _wait_for_ack(self, packet: TTPPacket) -> None:
+        
+        expected_ack = (packet.sequence_number + packet.sequence_space)
+
+        self.retransmission.start()
+
+        while True:
+            self.socket.receive_socket.settimeout(0.1)
+            
+            try:
+                ack, _ = self._wait_for_packet(TTPFlags.ACK)
+            
+                if ack.acknowledgment_number != expected_ack:
+                    continue
+            
+                self.sequence.acknowledge(ack.acknowledgment_number)
+
+                self.retransmission.stop()
+
+                print("[TTP] ACK confirmado.")
+
+                return
+            
+            except socket.timeout:
+                if self.retransmission.exhausted:
+                    raise TimeoutError("Falha na transmissão.")
+
+                if self.retransmission.expired:
+                    continue
+
+                print("[TTP] Timeout. Retransmitindo...")
+
+                self._transmit_packet(packet)
+                self.retransmission.restart()
+
+            finally:
+                self.socket.receive_socket.settimeout(None)
         
     def connect(self):
         if self.state != TTPState.CLOSED:
