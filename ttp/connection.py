@@ -28,6 +28,7 @@ class TTPConnection:
         self.window = SendWindow(window_size)
         self.receive_buffer = ReceiveBuffer()
         self.window_lock = threading.Lock()
+        self.out_of_order = {}
 
     def _transmit_packet(self, packet: TTPPacket) -> None:
         self.socket.send_packet(
@@ -88,21 +89,46 @@ class TTPConnection:
 
         print(self.window)
 
+    def _flush_out_of_order(self):
+
+        while True:
+            packet = self.out_of_order.get(self.sequence.recv_next)
+
+            if packet is None:
+                break
+
+            del self.out_of_order[packet.sequence_number]
+
+            print(f"[TTP] Liberando pacote armazenado SEQ={packet.sequence_number}")
+
+            status = self.sequence.receive(
+                packet.sequence_number,
+                packet.sequence_space
+            )
+
+            if status is not ReceiveStatus.EXPECTED:
+                break
+
+            self.receive_buffer.push(packet.payload)
+
     def _process_data(self, packet: TTPPacket) -> bytes | None:
 
         status = self.sequence.receive(packet.sequence_number, packet.sequence_space)
 
         if status is ReceiveStatus.EXPECTED:
-
             print("[TTP] DATA recebida.")
-            
+
+            self.receive_buffer.push(packet.payload)
+
+            self._flush_out_of_order()
+
             ack_packet = self._build_packet(TTPFlags.ACK)
 
             self._transmit_packet(ack_packet)
 
             print(f"[SERVER] Enviando ACK={ack_packet.acknowledgment_number}")
 
-            return packet.payload
+            return None
 
         if status is ReceiveStatus.DUPLICATE:
 
@@ -116,7 +142,13 @@ class TTPConnection:
 
         if status is ReceiveStatus.FUTURE:
 
-            print("[TTP] DATA fora de ordem.")
+            print(f"[TTP] Armazenando pacote futuro SEQ={packet.sequence_number}")
+
+            self.out_of_order[packet.sequence_number] = packet
+
+            ack_packet = self._build_packet(TTPFlags.ACK)
+
+            self._transmit_packet(ack_packet)
 
             return None
 
@@ -137,10 +169,7 @@ class TTPConnection:
 
                 if packet.is_data:
                     print("[DEBUG] Entrou no DATA")
-                    payload = self._process_data(packet)
-
-                    if payload:
-                        self.receive_buffer.push(payload)
+                    self._process_data(packet)
 
             except Exception as e:
                 import traceback
