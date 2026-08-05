@@ -12,6 +12,8 @@ class RetransmissionManager:
 
         self.max_retries = max_retries
 
+        self.timeout = timeout
+
         self.retries = 0
 
     def start(self):

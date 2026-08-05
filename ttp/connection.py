@@ -25,10 +25,14 @@ class TTPConnection:
         self.sequence = SequenceSpace()
         self.socket = TTPSocket()
         self.retransmission = RetransmissionManager(timeout=1.0, max_retries=5)
+        self.fin_retransmission = RetransmissionManager(timeout=1.0, max_retries=5)
         self.window = SendWindow(window_size)
         self.receive_buffer = ReceiveBuffer()
         self.window_lock = threading.Lock()
         self.out_of_order = {}
+        self.close_event = threading.Event()
+        self.fin_ack_received = threading.Event()
+        self.fin_received = threading.Event()
 
     def _transmit_packet(self, packet: TTPPacket) -> None:
         self.socket.send_packet(
@@ -154,6 +158,62 @@ class TTPConnection:
 
         return None
 
+    def _send_fin(self):
+        self.fin_packet = self._build_packet(TTPFlags.FIN)
+
+        self._transmit_packet(self.fin_packet)
+
+        self.fin_retransmission.start()
+
+    def _process_fin(self, packet: TTPPacket):
+        print("[TTP] FIN recebido.")
+
+        status = self.sequence.receive(
+            packet.sequence_number,
+            packet.sequence_space
+        )
+
+        # sempre responde com ACK para evitar condição de espera mútua
+        ack = self._build_packet(TTPFlags.ACK)
+
+        self._transmit_packet(ack)
+
+        print("[TTP] ACK do FIN enviado.")
+
+        # sinaliza para quem chamou close()
+        self.fin_received.set()
+
+        # se ainda não enviamos FIN, envia agora (resposta ao FIN)
+        if self.state == TTPState.ESTABLISHED:
+            fin = self._build_packet(TTPFlags.FIN)
+
+            self._transmit_packet(fin)
+
+            print("[TTP] FIN enviado.")
+
+            self.state = TTPState.FIN_WAIT
+
+    def _wait_fin_ack(self):
+        while True:
+
+            if self.fin_ack_received.wait(
+                timeout=self.fin_retransmission.timeout
+            ):
+
+                self.fin_retransmission.stop()
+
+                return True
+
+            if self.fin_retransmission.exhausted:
+
+                return False
+
+            print("[TTP] Retransmitindo FIN...")
+
+            self._transmit_packet(self.fin_packet)
+
+            self.fin_retransmission.restart()
+
     def _receive_loop(self):
         print("[DEBUG] Receive Loop iniciado")
 
@@ -162,19 +222,40 @@ class TTPConnection:
                 packet, _ = self._wait_for_packet()
 
                 if packet.is_ack:
-                    print("[DEBUG] Entrou no ACK")
+                    #
+                    # ACK do FIN
+                    #
+
+                    if self.state == TTPState.FIN_WAIT:
+
+                        print("[TTP] ACK do FIN recebido.")
+
+                        self.fin_retransmission.stop()
+
+                        self.fin_ack_received.set()
+
+                        continue
+
                     self._process_ack(packet)
-                    print("[DEBUG] Saiu do ACK")
+
+                    continue
+
+                if packet.flags & TTPFlags.FIN:
+                    self._process_fin(packet)
+
                     continue
 
                 if packet.is_data:
                     print("[DEBUG] Entrou no DATA")
                     self._process_data(packet)
 
+                
+
             except Exception as e:
                 import traceback
                 traceback.print_exc()
                 break
+
 
     def _flush_window(self):
         while True:
@@ -307,11 +388,50 @@ class TTPConnection:
         return self.receive_buffer.pop()
 
     def close(self):
+        if self.state == TTPState.CLOSED:
+            return
+
+        if self.state != TTPState.ESTABLISHED:
+
+            self.socket.close()
+
+            self.state = TTPState.CLOSED
+
+            return
+
+        print("[TTP] Iniciando encerramento...")
+
+        self.state = TTPState.FIN_WAIT
+
+        fin = self._build_packet(TTPFlags.FIN)
+
+        self._send_fin()
+
+        if not self._wait_fin_ack():
+
+            print("[TTP] Timeout aguardando ACK do FIN.")
+
+            self.socket.close()
+
+            self.state = TTPState.CLOSED
+
+            return
+
+        #
+        # espera FIN do outro lado
+        #
+
+        if not self.fin_received.wait(timeout=5):
+
+            print("[TTP] Timeout aguardando FIN remoto.")
+
         self.receive_buffer.clear()
 
         self.socket.close()
 
         self.state = TTPState.CLOSED
+
+        self.close_event.set()
 
         print("[TTP] Conexão encerrada.")
 
@@ -343,4 +463,6 @@ class TTPConnection:
 
     @property
     def connected(self):
-        return self.state == TTPState.ESTABLISHED
+        # considerar também FIN_WAIT como ligado para continuar
+        # processando pacotes (ACK/FIN) durante o encerramento
+        return self.state in (TTPState.ESTABLISHED, TTPState.FIN_WAIT)

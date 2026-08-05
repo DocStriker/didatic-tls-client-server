@@ -7,6 +7,8 @@ class TTPState(IntEnum):
     SYN_SENT = 1
     SYN_RECEIVED = 2
     ESTABLISHED = 3
+    FIN_WAIT = 4
+    CLOSING = 5
 
 class TTPFlags(IntFlag):
 
