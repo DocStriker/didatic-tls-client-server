@@ -5,7 +5,7 @@ from ttp.retransmission import RetransmissionManager
 from ttp.window import SendWindow
 import time
 import threading
-from collections import deque
+from ttp.receive import ReceiveBuffer
 
 class TTPConnection:
     def __init__(
@@ -26,7 +26,7 @@ class TTPConnection:
         self.socket = TTPSocket()
         self.retransmission = RetransmissionManager(timeout=1.0, max_retries=5)
         self.window = SendWindow(window_size)
-        self.receive_buffer = deque()
+        self.receive_buffer = ReceiveBuffer()
         self.window_lock = threading.Lock()
 
     def _transmit_packet(self, packet: TTPPacket) -> None:
@@ -140,7 +140,7 @@ class TTPConnection:
                     payload = self._process_data(packet)
 
                     if payload:
-                        self.receive_buffer.append(payload)
+                        self.receive_buffer.push(payload)
 
             except Exception as e:
                 import traceback
@@ -275,12 +275,10 @@ class TTPConnection:
         if self.state != TTPState.ESTABLISHED:
             raise RuntimeError("Conexão não estabelecida.")
 
-        while not self.receive_buffer:
-            time.sleep(0.01)
-
-        return self.receive_buffer.popleft()
+        return self.receive_buffer.pop()
 
     def close(self):
+        self.receive_buffer.clear()
 
         self.socket.close()
 
