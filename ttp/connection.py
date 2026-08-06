@@ -1,11 +1,13 @@
+import threading
+import time
+
 from ttp.sequence import SequenceSpace, ReceiveStatus
 from ttp.packet import TTPPacket, TTPFlags,TTPState
 from ttp.socket import TTPSocket
 from ttp.retransmission import RetransmissionManager
 from ttp.window import SendWindow
-import time
-import threading
 from ttp.receive import ReceiveBuffer
+from ttp.log_config import LoggerManager
 
 class TTPConnection:
     def __init__(
@@ -15,12 +17,15 @@ class TTPConnection:
         remote_ip: str | None = None,
         remote_port: int | None = None,
         window_size: int = 65535,
+        side_name: str = "unknown",
     ):
         self.local_ip = local_ip
         self.local_port = local_port
         self.remote_ip = remote_ip
         self.remote_port = remote_port
         self.window_size = window_size
+        self.logger_manager = LoggerManager(side_name)
+
         self.state = TTPState.CLOSED
         self.sequence = SequenceSpace()
         self.socket = TTPSocket()
@@ -28,11 +33,13 @@ class TTPConnection:
         self.fin_retransmission = RetransmissionManager(timeout=1.0, max_retries=5)
         self.window = SendWindow(window_size)
         self.receive_buffer = ReceiveBuffer()
+
         self.window_lock = threading.Lock()
         self.out_of_order = {}
         self.close_event = threading.Event()
         self.fin_ack_received = threading.Event()
         self.fin_received = threading.Event()
+
 
     def _transmit_packet(self, packet: TTPPacket) -> None:
         self.socket.send_packet(
@@ -89,9 +96,9 @@ class TTPConnection:
 
         self.retransmission.stop()
 
-        print(f"[TTP] ACK {packet.acknowledgment_number} processado.")
+        self.logger_manager.log(f"[TTP] ACK {packet.acknowledgment_number} processado.")
 
-        print(self.window)
+        self.logger_manager.log(self.window)
 
     def _flush_out_of_order(self):
 
@@ -103,12 +110,9 @@ class TTPConnection:
 
             del self.out_of_order[packet.sequence_number]
 
-            print(f"[TTP] Liberando pacote armazenado SEQ={packet.sequence_number}")
+            self.logger_manager.log(f"[TTP] Liberando pacote armazenado SEQ={packet.sequence_number}")
 
-            status = self.sequence.receive(
-                packet.sequence_number,
-                packet.sequence_space
-            )
+            status = self.sequence.receive(packet.sequence_number, packet.sequence_space)
 
             if status is not ReceiveStatus.EXPECTED:
                 break
@@ -116,11 +120,10 @@ class TTPConnection:
             self.receive_buffer.push(packet.payload)
 
     def _process_data(self, packet: TTPPacket) -> bytes | None:
-
         status = self.sequence.receive(packet.sequence_number, packet.sequence_space)
 
         if status is ReceiveStatus.EXPECTED:
-            print("[TTP] DATA recebida.")
+            self.logger_manager.log("[TTP] DATA recebida.")
 
             self.receive_buffer.push(packet.payload)
 
@@ -130,13 +133,12 @@ class TTPConnection:
 
             self._transmit_packet(ack_packet)
 
-            print(f"[SERVER] Enviando ACK={ack_packet.acknowledgment_number}")
+            self.logger_manager.log(f"[SERVER] Enviando ACK={ack_packet.acknowledgment_number}")
 
             return None
 
         if status is ReceiveStatus.DUPLICATE:
-
-            print("[TTP] DATA duplicada.")
+            self.logger_manager.log("[TTP] DATA duplicada.")
 
             ack_packet = self._build_packet(TTPFlags.ACK)
             
@@ -145,8 +147,7 @@ class TTPConnection:
             return None
 
         if status is ReceiveStatus.FUTURE:
-
-            print(f"[TTP] Armazenando pacote futuro SEQ={packet.sequence_number}")
+            self.logger_manager.log(f"[TTP] Armazenando pacote futuro SEQ={packet.sequence_number}")
 
             self.out_of_order[packet.sequence_number] = packet
 
@@ -166,7 +167,7 @@ class TTPConnection:
         self.fin_retransmission.start()
 
     def _process_fin(self, packet: TTPPacket):
-        print("[TTP] FIN recebido.")
+        self.logger_manager.log("[TTP] FIN recebido.")
 
         status = self.sequence.receive(
             packet.sequence_number,
@@ -174,11 +175,11 @@ class TTPConnection:
         )
 
         # sempre responde com ACK para evitar condição de espera mútua
-        ack = self._build_packet(TTPFlags.ACK)
+        fin_ack = self._build_packet(TTPFlags.FIN | TTPFlags.ACK)
 
-        self._transmit_packet(ack)
+        self._transmit_packet(fin_ack)
 
-        print("[TTP] ACK do FIN enviado.")
+        self.logger_manager.log("[TTP] FIN-ACK enviado.")
 
         # sinaliza para quem chamou close()
         self.fin_received.set()
@@ -189,46 +190,38 @@ class TTPConnection:
 
             self._transmit_packet(fin)
 
-            print("[TTP] FIN enviado.")
+            self.logger_manager.log("[TTP] FIN enviado.")
 
             self.state = TTPState.FIN_WAIT
 
     def _wait_fin_ack(self):
         while True:
-
-            if self.fin_ack_received.wait(
-                timeout=self.fin_retransmission.timeout
-            ):
-
+            if self.fin_ack_received.wait(self.fin_retransmission.timeout):
                 self.fin_retransmission.stop()
 
                 return True
 
             if self.fin_retransmission.exhausted:
-
                 return False
 
-            print("[TTP] Retransmitindo FIN...")
+            self.logger_manager.log("[TTP] Retransmitindo FIN...")
 
             self._transmit_packet(self.fin_packet)
 
             self.fin_retransmission.restart()
 
     def _receive_loop(self):
-        print("[DEBUG] Receive Loop iniciado")
+        self.logger_manager.log("[DEBUG] Receive Loop iniciado")
 
         while self.connected:
             try:
                 packet, _ = self._wait_for_packet()
 
                 if packet.is_ack:
-                    #
-                    # ACK do FIN
-                    #
+                    # FIN_ACK recebido, sinaliza para o close() que o outro lado reconheceu nosso FIN
 
                     if self.state == TTPState.FIN_WAIT:
-
-                        print("[TTP] ACK do FIN recebido.")
+                        self.logger_manager.log("[TTP] FIN-ACK recebido.")
 
                         self.fin_retransmission.stop()
 
@@ -246,10 +239,8 @@ class TTPConnection:
                     continue
 
                 if packet.is_data:
-                    print("[DEBUG] Entrou no DATA")
-                    self._process_data(packet)
-
-                
+                    self.logger_manager.log("[DEBUG] Entrou no DATA")
+                    self._process_data(packet)          
 
             except Exception as e:
                 import traceback
@@ -271,9 +262,9 @@ class TTPConnection:
 
             self._transmit_packet(packet)
 
-            print(self.window)
+            self.logger_manager.log(self.window)
 
-            print(f"[TTP] Enviado SEQ={packet.sequence_number}")
+            self.logger_manager.log(f"[TTP] Enviado SEQ={packet.sequence_number}")
 
             if len(self.window.pending) == 1:
                 self.retransmission.start()
@@ -282,24 +273,15 @@ class TTPConnection:
         self.receiver = threading.Thread(target=self._receive_loop, daemon=True)
 
         self.receiver.start()
-        
-    def connect(self):
-        if self.state != TTPState.CLOSED:
-            raise RuntimeError("Conexão já iniciada.")
 
-        print("[TTP] Estado:", self.state.name)
-
+    def _client_handshake(self):
         syn_packet = self._build_packet(TTPFlags.SYN)
 
         self._transmit_packet(syn_packet)
 
         self.state = TTPState.SYN_SENT
 
-        print("[TTP] Estado:", self.state.name)
-
         syn_ack, _ = self._wait_for_packet(TTPFlags.SYN | TTPFlags.ACK)
-
-        print("[TTP] SYN-ACK recebido.")
 
         if syn_ack.acknowledgment_number != self.sequence.send_next:
             raise RuntimeError("ACK inválido.")
@@ -312,7 +294,51 @@ class TTPConnection:
 
         self.state = TTPState.ESTABLISHED
 
-        print("[TTP] Estado:", self.state.name)
+    def _server_handshake(self):
+        syn, ipv4 = self._wait_for_packet(TTPFlags.SYN)
+
+        self.remote_ip = ipv4.source_ip
+        self.remote_port = syn.source_port
+
+        self.sequence.recv_next = syn.sequence_number + syn.sequence_space
+
+        syn_ack_packet = self._build_packet(TTPFlags.SYN | TTPFlags.ACK)
+
+        self._transmit_packet(syn_ack_packet)
+
+        self.state = TTPState.SYN_RECEIVED
+
+        ack, _ = self._wait_for_packet(TTPFlags.ACK)
+
+        if ack.acknowledgment_number != self.sequence.send_next:
+            raise RuntimeError("ACK inválido.")
+
+        self.state = TTPState.ESTABLISHED
+
+    def wait_for_acks(self, timeout: float = 5.0) -> bool:
+            """Aguarda até que todos os pacotes pendentes sejam ACKed ou até estourar o timeout."""
+            start = time.time()
+    
+            while not self.window.empty:
+                # se os retries de retransmissão foram exauridos, aborta
+                if self.retransmission.exhausted:
+                    return False
+    
+                # timeout externo configurado pelo chamador
+                if (timeout is not None) and ((time.time() - start) >= timeout):
+                    return False
+    
+                time.sleep(0.01)
+    
+            return True
+        
+    def connect(self):
+        if self.state != TTPState.CLOSED:
+            raise RuntimeError("Conexão já iniciada.")
+
+        self.logger_manager.log("[TTP] Estado:", self.state.name)
+
+        self._client_handshake()
 
         self._start_receiver()
 
@@ -326,49 +352,25 @@ class TTPConnection:
         if self.state != TTPState.CLOSED:
             raise RuntimeError("Socket já está em uso.")
 
-        print("[TTP] Aguardando SYN...")
+        self.logger_manager.log("[TTP] Aguardando SYN...")
 
-        print("[TTP] Estado:", self.state.name)
+        self.logger_manager.log("[TTP] Estado:", self.state.name)
 
-        syn, ipv4 = self._wait_for_packet(TTPFlags.SYN)
+        self._server_handshake()
 
-        print("[TTP] SYN recebido.")
-
-        self.remote_ip = ipv4.source_ip
-        self.remote_port = syn.source_port
-
-        self.sequence.recv_next = syn.sequence_number + syn.sequence_space
-
-        syn_ack_packet = self._build_packet(TTPFlags.SYN | TTPFlags.ACK)
-
-        self._transmit_packet(syn_ack_packet)
-
-        self.state = TTPState.SYN_RECEIVED
-
-        print("[TTP] Estado:", self.state.name)
-
-        ack, _ = self._wait_for_packet(TTPFlags.ACK)
-
-        if ack.acknowledgment_number != self.sequence.send_next:
-            raise RuntimeError("ACK inválido.")
-
-        self.state = TTPState.ESTABLISHED
-
-        print("[TTP] Estado:", self.state.name)
+        self.logger_manager.log("[TTP] Estado:", self.state.name)
 
         self._start_receiver()
 
         return self
     
     def send(self, data: bytes):
-
         if self.state != TTPState.ESTABLISHED:
             raise RuntimeError("Conexão não estabelecida.")
 
         offset = 0
 
         while offset < len(data):
-
             chunk = data[offset:offset + 1600]
 
             packet = self._build_packet(TTPFlags.DATA, chunk)
@@ -392,14 +394,13 @@ class TTPConnection:
             return
 
         if self.state != TTPState.ESTABLISHED:
-
             self.socket.close()
 
             self.state = TTPState.CLOSED
 
             return
 
-        print("[TTP] Iniciando encerramento...")
+        self.logger_manager.log("[TTP] Iniciando encerramento...")
 
         self.state = TTPState.FIN_WAIT
 
@@ -408,8 +409,7 @@ class TTPConnection:
         self._send_fin()
 
         if not self._wait_fin_ack():
-
-            print("[TTP] Timeout aguardando ACK do FIN.")
+            self.logger_manager.log("[TTP] Timeout aguardando ACK do FIN.")
 
             self.socket.close()
 
@@ -417,13 +417,9 @@ class TTPConnection:
 
             return
 
-        #
         # espera FIN do outro lado
-        #
-
         if not self.fin_received.wait(timeout=5):
-
-            print("[TTP] Timeout aguardando FIN remoto.")
+            self.logger_manager.log("[TTP] Timeout aguardando FIN remoto.")
 
         self.receive_buffer.clear()
 
@@ -433,33 +429,15 @@ class TTPConnection:
 
         self.close_event.set()
 
-        print("[TTP] Conexão encerrada.")
+        self.logger_manager.log("[TTP] Conexão encerrada.")
 
     def __enter__(self):
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-
         self.close()
 
         return False
-
-    def wait_for_acks(self, timeout: float = 5.0) -> bool:
-        """Aguarda até que todos os pacotes pendentes sejam ACKed ou até estourar o timeout."""
-        start = time.time()
-
-        while not self.window.empty:
-            # se os retries de retransmissão foram exauridos, aborta
-            if self.retransmission.exhausted:
-                return False
-
-            # timeout externo configurado pelo chamador
-            if (timeout is not None) and ((time.time() - start) >= timeout):
-                return False
-
-            time.sleep(0.01)
-
-        return True
 
     @property
     def connected(self):
