@@ -1,4 +1,6 @@
 from ttp.connection import TTPConnection
+from ttls.session import TTLSSession
+from ttls.record import TTLSRecord, RecordType
 
 def client(host: str, port: int, message: str) -> None:
     connection = TTPConnection(
@@ -11,8 +13,12 @@ def client(host: str, port: int, message: str) -> None:
 )
 
     connection.connect()
+
+    trp = TTLSSession(connection)
     print(f"[Client][TTP] Conectado em {host}:{port}")
-    connection.send(message.encode("utf-8"))
+
+    trp.send_record(TTLSRecord(RecordType.APPLICATION_DATA,b"Hello Server"))
+    #connection.send(message.encode("utf-8"))
     print(f"[Client][TTP] Mensagem enviada.")
 
     # aguarda acknowledgements antes de fechar
@@ -32,10 +38,16 @@ def server(host: str, port: int) -> None:
 
     connection = listener.accept()
 
+    trp = TTLSSession(connection)
+
     print(f"[Server][TTP] Cliente conectado.")
+    
+    record = trp.recv_record()
+    
+    print(record.payload.decode())
 
-    dados = connection.recv()
+    #dados = connection.recv()
 
-    print(f"[Server][TTP] Mensagem recebida: {dados.decode('utf-8')}")
+    #print(f"[Server][TTP] Mensagem recebida: {dados.decode('utf-8')}")
 
     connection.close()
