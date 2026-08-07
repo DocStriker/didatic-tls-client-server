@@ -8,6 +8,7 @@ from ttp.retransmission import RetransmissionManager
 from ttp.window import SendWindow
 from ttp.receive import ReceiveBuffer
 from ttp.log_config import LoggerManager
+from ttp.constants import DEFAULT_WINDOW_SIZE, MAX_PACKET_SIZE
 
 class TTPConnection:
     def __init__(
@@ -16,9 +17,10 @@ class TTPConnection:
         local_port: int,
         remote_ip: str | None = None,
         remote_port: int | None = None,
-        window_size: int = 65535,
+        window_size: int = DEFAULT_WINDOW_SIZE,
         side_name: str = "unknown",
     ):
+        
         self.local_ip = local_ip
         self.local_port = local_port
         self.remote_ip = remote_ip
@@ -59,7 +61,7 @@ class TTPConnection:
             payload=payload
         )
 
-        #print(packet.__repr__)
+        #print(packet.payload_length)
 
         if packet.consumes_sequence:
             self.sequence.advance_send(packet.sequence_space)
@@ -247,7 +249,6 @@ class TTPConnection:
                 traceback.print_exc()
                 break
 
-
     def _flush_window(self):
         while True:
             packet = self.window.next_packet()
@@ -371,7 +372,7 @@ class TTPConnection:
         offset = 0
 
         while offset < len(data):
-            chunk = data[offset:offset + 1600]
+            chunk = data[offset:offset + MAX_PACKET_SIZE]
 
             packet = self._build_packet(TTPFlags.DATA, chunk)
 

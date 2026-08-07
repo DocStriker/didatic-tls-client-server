@@ -2,9 +2,7 @@ import datetime
 import logging
 import os
 from pathlib import Path
-
-_SHARED_LOGGER = None
-_SHARED_LOG_FILE_PATH = None
+from ttp.constants import _SHARED_LOGGER, _SHARED_LOG_FILE_PATH
 
 class _MicrosecondFormatter(logging.Formatter):
     def formatTime(self, record, datefmt=None):

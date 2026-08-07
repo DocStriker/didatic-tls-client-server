@@ -1,8 +1,8 @@
 import struct
 from enum import IntFlag, IntEnum
+from ttp.constants import HEADER_FORMAT
 
 class TTPState(IntEnum):
-
     CLOSED = 0
     SYN_SENT = 1
     SYN_RECEIVED = 2
@@ -11,7 +11,6 @@ class TTPState(IntEnum):
     CLOSING = 5
 
 class TTPFlags(IntFlag):
-
     NONE = 0x00
     
     SYN = 0x01
@@ -21,9 +20,6 @@ class TTPFlags(IntFlag):
     DATA = 0x10
 
 class TTPPacket:
-
-    HEADER_FORMAT = "!HHIIBBHHHI"
-
     HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 
     def __init__(
@@ -55,12 +51,10 @@ class TTPPacket:
 
     def pack(self) -> bytes:
         if self.payload_length > 0xFFFF:
-            raise ValueError(
-                "Payload excede o tamanho máximo suportado (65535 bytes)."
-            )
+            raise ValueError("Payload excede o tamanho máximo suportado (65535 bytes).")
 
         header = struct.pack(
-            self.HEADER_FORMAT,
+            HEADER_FORMAT,
 
             self.source_port,
             self.destination_port,
@@ -81,7 +75,6 @@ class TTPPacket:
 
     @classmethod
     def unpack(cls, data: bytes):
-
         if len(data) < cls.HEADER_SIZE:
             raise ValueError("Pacote TTP menor que o cabeçalho.")
 
@@ -99,22 +92,14 @@ class TTPPacket:
             payload_length,
             checksum,
 
-        ) = struct.unpack(
-            cls.HEADER_FORMAT,
-            header
-        )
+        ) = struct.unpack(HEADER_FORMAT, header)
 
         expected_size = header_length + payload_length
 
         if len(data) < expected_size:
-            raise ValueError(
-                "Pacote TTP incompleto."
-            )
+            raise ValueError("Pacote TTP incompleto.")
 
-        payload = data[
-            header_length:
-            expected_size
-        ]
+        payload = data[header_length:expected_size]
 
         packet = cls(
             source_port=source_port,
@@ -178,11 +163,7 @@ class TTPPacket:
 
     @property
     def consumes_sequence(self):
-        return (
-            self.is_syn
-            or self.is_fin
-            or self.is_data
-        )
+        return (self.is_syn or self.is_fin or self.is_data)
 
     def __repr__(self):
         return (

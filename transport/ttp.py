@@ -32,6 +32,8 @@ def server(host: str, port: int) -> None:
 
     connection = listener.accept()
 
+    print(f"[Server][TTP] Cliente conectado.")
+
     dados = connection.recv()
 
     print(f"[Server][TTP] Mensagem recebida: {dados.decode('utf-8')}")

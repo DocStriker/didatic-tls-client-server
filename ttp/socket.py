@@ -6,14 +6,12 @@ from ttp.checksums import calculate_ttp_checksum, validate_ttp_checksum
 from ttp.constants import TTP_PROTOCOL
 
 class TTPSocket:
-
     def __init__(self, timeout: float | None = None):
         self.send_socket = self._create_send_socket()
         self.receive_socket = self._create_receive_socket()
         
         if timeout is not None:
             self.receive_socket.settimeout(timeout)
-        
 
     def _create_send_socket(self) -> socket.socket:
         """
@@ -59,7 +57,6 @@ class TTPSocket:
         self.send_socket.sendto(raw_packet, (destination_ip, 0))
 
     def receive_packet(self) -> tuple[TTPPacket, IPv4Packet]:
-
         raw_packet, _ = self.receive_socket.recvfrom(65535)
 
         return self._parse_raw_packet(raw_packet)

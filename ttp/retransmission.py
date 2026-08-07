@@ -1,19 +1,10 @@
 from ttp.timer import TTPTimer
 
 class RetransmissionManager:
-
-    def __init__(
-        self,
-        timeout: float = 1.0,
-        max_retries: int = 5,
-    ):
-
+    def __init__(self, timeout: float = 1.0, max_retries: int = 5):
         self.timer = TTPTimer(timeout)
-
         self.max_retries = max_retries
-
         self.timeout = timeout
-
         self.retries = 0
 
     def start(self):

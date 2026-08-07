@@ -1,7 +1,6 @@
 import time
 
 class TTPTimer:
-
     def __init__(self, timeout: float = 1.0):
         self.timeout = timeout
         self.started_at = None
@@ -21,6 +20,4 @@ class TTPTimer:
         if not self.running:
             return False
 
-        return (
-            time.monotonic() - self.started_at
-        ) >= self.timeout
+        return (time.monotonic() - self.started_at) >= self.timeout

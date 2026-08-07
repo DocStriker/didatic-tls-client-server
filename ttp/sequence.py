@@ -3,11 +3,8 @@ import random
 from enum import Enum
 
 class ReceiveStatus(Enum):
-
     EXPECTED = 0
-
     DUPLICATE = 1
-
     FUTURE = 2
 
 class SequenceSpace:
@@ -25,41 +22,26 @@ class SequenceSpace:
     """
 
     def __init__(self, initial_sequence: int | None = None, receive_sequence: int = 0,):
-
         if initial_sequence is None:
             initial_sequence = random.randint(0, 0xFFFFFFFF)
 
         self.initial_sequence = initial_sequence
-
         self.send_unacked = initial_sequence
         self.send_next = initial_sequence
-
         self.recv_next = 0
-
         self.send_window = 4096
 
     def can_send(self, size: int) -> bool:
-        return (
-            self.bytes_in_flight + size
-            <= self.send_window
-        )
+        return (self.bytes_in_flight + size <= self.send_window)
 
-    def receive(
-        self,
-        sequence_number: int,
-        amount: int,
-    ) -> ReceiveStatus:
-
+    def receive(self, sequence_number: int, amount: int,) -> ReceiveStatus:
         if sequence_number == self.recv_next:
             self.recv_next += amount
 
             return ReceiveStatus.EXPECTED
 
-
         if sequence_number < self.recv_next:
-
             return ReceiveStatus.DUPLICATE
-
 
         return ReceiveStatus.FUTURE
 
@@ -96,13 +78,11 @@ class SequenceSpace:
         return True
 
     def reset(self) -> None:
-
         self.send_unacked = self.initial_sequence
         self.send_next = self.initial_sequence
         self.recv_next = 0
 
     def __repr__(self):
-
         return (
             "SequenceSpace("
             f"SND.UNA={self.send_unacked}, "

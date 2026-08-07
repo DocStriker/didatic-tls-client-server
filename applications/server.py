@@ -4,13 +4,10 @@ from transport import ttp
 
 def serve(protocol: str, host: str, port: int) -> None:
     PROTOCOLS = {
-
-    "TCP": tcp.server,
-
-    "UDP": udp.server,
-
-    "TTP": ttp.server,
-}
+        "TCP": tcp.server,
+        "UDP": udp.server,
+        "TTP": ttp.server,
+    }
 
     protocol = protocol.upper()
 

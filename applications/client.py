@@ -3,13 +3,9 @@ from transport import udp
 from transport import ttp
 
 def connect(protocol: str, host: str, port: int, message: str) -> None:
-
     PROTOCOLS = {
-    
         "TCP": tcp.client,
-    
         "UDP": udp.client,
-    
         "TTP": ttp.client,
     }
     

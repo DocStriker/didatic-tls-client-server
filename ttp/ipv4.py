@@ -2,14 +2,10 @@ import socket
 import struct
 
 from ttp.checksums import checksum
-from ttp.constants import TTP_PROTOCOL
-
+from ttp.constants import TTP_PROTOCOL, HEADER_FORMAT_IPV4
 
 class IPv4Packet:
-
-    HEADER_FORMAT = "!BBHHHBBH4s4s"
-
-    HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
+    HEADER_SIZE = struct.calcsize(HEADER_FORMAT_IPV4)
 
     def __init__(
         self,
@@ -23,34 +19,24 @@ class IPv4Packet:
 
         self.version = 4
         self.ihl = 5
-
         self.tos = 0
-
         self.protocol = protocol
-
         self.ttl = ttl
-
         self.identification = identification
-
         self.flags_fragment_offset = 0
-
         self.source_ip = source_ip
         self.destination_ip = destination_ip
-
         self.payload = payload
 
     @property
     def header_length(self) -> int:
-
         return self.ihl * 4
 
     @property
     def total_length(self) -> int:
-
         return self.header_length + len(self.payload)
 
     def build_header(self) -> bytes:
-
         version_ihl = ((self.version << 4) | self.ihl)
 
         source_address = socket.inet_aton(self.source_ip)
@@ -58,52 +44,32 @@ class IPv4Packet:
         destination_address = socket.inet_aton(self.destination_ip)
 
         header = struct.pack(
-            self.HEADER_FORMAT,
-
+            HEADER_FORMAT_IPV4,
             version_ihl,
-
             self.tos,
-
             self.total_length,
-
             self.identification,
-
             self.flags_fragment_offset,
-
             self.ttl,
-
             self.protocol,
-
             0,
-
             source_address,
-
             destination_address,
         )
 
         header_checksum = checksum(header)
 
         return struct.pack(
-            self.HEADER_FORMAT,
-
+            HEADER_FORMAT_IPV4,
             version_ihl,
-
             self.tos,
-
             self.total_length,
-
             self.identification,
-
             self.flags_fragment_offset,
-
             self.ttl,
-
             self.protocol,
-
             header_checksum,
-
             source_address,
-
             destination_address,
         )
 
@@ -112,7 +78,6 @@ class IPv4Packet:
 
     @classmethod
     def unpack(cls, raw_packet: bytes):
-
         if len(raw_packet) < cls.HEADER_SIZE:
             raise ValueError("Pacote IPv4 muito pequeno.")
 
@@ -141,19 +106,16 @@ class IPv4Packet:
             header_checksum,
             source_address,
             destination_address,
-        ) = struct.unpack(cls.HEADER_FORMAT, raw_packet[:20])
+        ) = struct.unpack(HEADER_FORMAT_IPV4, raw_packet[:20])
 
         payload = raw_packet[header_size:total_length]
 
-        packet = cls(source_ip = socket.inet_ntoa(source_address),
-                    destination_ip = socket.inet_ntoa(destination_address),
-
+        packet = cls(
+            source_ip = socket.inet_ntoa(source_address),
+            destination_ip = socket.inet_ntoa(destination_address),
             payload=payload,
-
             protocol=protocol,
-
             ttl=ttl,
-
             identification=identification,
         )
 

@@ -8,7 +8,8 @@ if str(ROOT) not in sys.path:
 from scapy.all import sniff
 from scapy.layers.inet import IP, TCP, UDP
 from scapy.packet import bind_layers
-from wireshark.capture import capture_tcp, capture_udp, capture_ttp, SERVER_PORT, TTP_PROTOCOL, TTP
+from wireshark.capture import capture_tcp, capture_udp, capture_ttp, TTP
+from ttp.constants import TTP_PROTOCOL, SERVER_PORT
 
 bind_layers(IP, TTP, proto=253)
 
@@ -27,10 +28,7 @@ def callback(pkt):
         if TCP in pkt:
             tcp = pkt[TCP]
 
-            if SERVER_PORT not in (
-                tcp.sport,
-                tcp.dport
-            ):
+            if SERVER_PORT not in (tcp.sport, tcp.dport):
                 return
 
             capture_tcp(pkt)
@@ -39,10 +37,7 @@ def callback(pkt):
         if UDP in pkt:
             udp = pkt[UDP]
 
-            if SERVER_PORT not in (
-                udp.sport,
-                udp.dport
-            ):
+            if SERVER_PORT not in (udp.sport, udp.dport):
                 return
 
             capture_udp(pkt)
@@ -52,12 +47,10 @@ def callback(pkt):
         return
 
 try:
-    sniff(
-        iface="lo",
-        prn=callback,
-        store=False
-    )
+    sniff(iface="lo", prn=callback, store=False)
+
 except KeyboardInterrupt:
     print("\nCaptura interrompida pelo usuário")
+
 except Exception as e:
     print(f"Erro durante a captura: {e}")
