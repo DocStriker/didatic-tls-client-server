@@ -1,0 +1,12 @@
+build==1.5.1
+cffi==2.1.0
+chardet==7.4.3
+cryptography==49.0.0
+libpcap==1.11.0b29
+packaging==26.2
+pkg_about==2.4.3
+py-utlx==2.4.0
+pycparser==3.0
+pyproject_hooks==1.2.0
+scapy==2.7.0
+typing_extensions==4.16.0

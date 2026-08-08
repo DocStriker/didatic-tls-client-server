@@ -1,3 +1,13 @@
+# =============================================================================
+# ttp/retransmission.py
+# -----------------------------------------------------------------------------
+# RetransmissionManager combines a TTPTimer with a retry counter, giving
+# TTPConnection a simple "has this packet been waiting too long, and have
+# we already tried resending it too many times?" utility. This is the
+# didactic equivalent of TCP's retransmission timeout (RTO) + retry-limit
+# behaviour, using a fixed timeout instead of TCP's adaptive RTT-based one.
+# =============================================================================
+
 from ttp.timer import TTPTimer
 
 class RetransmissionManager:
@@ -8,14 +18,19 @@ class RetransmissionManager:
         self.retries = 0
 
     def start(self):
+        # Called when we begin waiting for an ACK on a *fresh* packet:
+        # resets the retry counter and (re)starts the timer.
         self.retries = 0
         self.timer.start()
 
     def restart(self):
+        # Called after a retransmission: keeps counting retries (so we can
+        # eventually give up) while resetting the timer for another round.
         self.retries += 1
         self.timer.start()
 
     def stop(self):
+        # Called once the awaited ACK finally arrives.
         self.timer.stop()
 
     @property
@@ -24,4 +39,6 @@ class RetransmissionManager:
 
     @property
     def exhausted(self):
+        # True once we've retried max_retries times without success --
+        # signals the caller to give up (e.g. treat the connection as dead).
         return self.retries >= self.max_retries

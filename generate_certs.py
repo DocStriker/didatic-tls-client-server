@@ -1,3 +1,14 @@
+# =============================================================================
+# generate_certs.py
+# -----------------------------------------------------------------------------
+# One-off utility script (not part of the TTP/TCP/UDP demo itself) that
+# generates a self-signed X.509 certificate + RSA private key for the
+# separate TLS client/server demo referenced in the project README
+# (server.py / client.py using Python's `ssl` module). It is what lets the
+# TLS demo present "https-style" server authentication on localhost without
+# needing a real Certificate Authority.
+# =============================================================================
+
 from datetime import datetime, timedelta, timezone
 from ipaddress import ip_address
 from pathlib import Path
@@ -17,7 +28,10 @@ CERT_PATH = CERT_DIR / "server.crt"
 def main() -> None:
     CERT_DIR.mkdir(exist_ok=True)
 
+    # 2048-bit RSA key pair with the standard public exponent (65537).
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+    # Self-signed cert: issuer == subject, both set to the same Name.
     subject = issuer = x509.Name(
         [
             x509.NameAttribute(NameOID.COUNTRY_NAME, "BR"),
@@ -33,8 +47,12 @@ def main() -> None:
         .issuer_name(issuer)
         .public_key(private_key.public_key())
         .serial_number(x509.random_serial_number())
+        # Slightly backdated "not valid before" to tolerate small clock skew.
         .not_valid_before(now - timedelta(minutes=1))
         .not_valid_after(now + timedelta(days=365))
+        # SubjectAlternativeName is what modern TLS clients actually check
+        # (rather than the deprecated CommonName) -- covers both the
+        # "localhost" hostname and the 127.0.0.1 literal IP.
         .add_extension(
             x509.SubjectAlternativeName(
                 [
@@ -44,9 +62,12 @@ def main() -> None:
             ),
             critical=False,
         )
+        # Self-signs the certificate with its own private key, using SHA-256.
         .sign(private_key, hashes.SHA256())
     )
 
+    # Private key written unencrypted (NoEncryption) -- fine for a local
+    # development-only certificate, never do this for a production key.
     KEY_PATH.write_bytes(
         private_key.private_bytes(
             encoding=serialization.Encoding.PEM,

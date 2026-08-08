@@ -109,3 +109,26 @@
 2026-08-07 08:47:13.421609 INFO [Server] [TTP] FIN-ACK enviado.
 2026-08-07 08:47:13.421663 INFO [Client] [TTP] FIN-ACK recebido.
 2026-08-07 08:47:13.421809 INFO [Server] [TTP] Conexão encerrada.
+2026-08-08 05:03:41.282242 INFO [Server] [TTP] Aguardando SYN...
+2026-08-08 05:03:41.283572 INFO [Server] [TTP] Estado: CLOSED
+2026-08-08 05:03:44.858769 INFO [Client] [TTP] Estado: CLOSED
+2026-08-08 05:03:44.859946 INFO [Server] [TTP] Estado: ESTABLISHED
+2026-08-08 05:03:44.859984 INFO [Client] [DEBUG] Receive Loop iniciado
+2026-08-08 05:03:44.860354 INFO [Server] [DEBUG] Receive Loop iniciado
+2026-08-08 05:03:44.860685 INFO [Client] SendWindow(queue=0, pending=1, bytes=17/4096)
+2026-08-08 05:03:44.860876 INFO [Client] [TTP] Enviado SEQ=1087977469
+2026-08-08 05:03:44.861171 INFO [Server] [DEBUG] Entrou no DATA
+2026-08-08 05:03:44.861433 INFO [Server] [TTP] DATA recebida.
+2026-08-08 05:03:44.861900 INFO [Client] [TTP] ACK 1087977486 processado.
+2026-08-08 05:03:44.862000 INFO [Server] [SERVER] Enviando ACK=1087977486
+2026-08-08 05:03:44.862240 INFO [Client] SendWindow(queue=0, pending=0, bytes=0/4096)
+2026-08-08 05:03:44.873771 INFO [Client] [TTP] Iniciando encerramento...
+2026-08-08 05:03:44.874422 INFO [Server] [TTP] Iniciando encerramento...
+2026-08-08 05:03:44.875214 INFO [Client] [TTP] FIN recebido.
+2026-08-08 05:03:44.877134 INFO [Client] [TTP] FIN-ACK enviado.
+2026-08-08 05:03:44.877373 INFO [Server] [TTP] FIN recebido.
+2026-08-08 05:03:44.877552 INFO [Server] [TTP] FIN-ACK enviado.
+2026-08-08 05:03:44.877756 INFO [Server] [TTP] FIN-ACK recebido.
+2026-08-08 05:03:44.877985 INFO [Server] [TTP] Conexão encerrada.
+2026-08-08 05:03:44.886292 INFO [Client] [TTP] FIN-ACK recebido.
+2026-08-08 05:03:44.886505 INFO [Client] [TTP] Conexão encerrada.

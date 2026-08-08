@@ -1,3 +1,14 @@
+# =============================================================================
+# wireshark/capture.py
+# -----------------------------------------------------------------------------
+# Pretty-printers for the three protocols this project cares about: TCP,
+# UDP and TTP. Each capture_* function receives a Scapy packet, extracts
+# the relevant header fields, and prints a human-readable, Wireshark-like
+# summary to the console (used by wireshark/sniffer.py's live capture
+# loop). A custom Scapy `Packet` subclass (`TTP`) teaches Scapy how to
+# parse our custom TTP header, since Scapy has no built-in knowledge of it.
+# =============================================================================
+
 from scapy.all import IP, TCP, UDP
 from wireshark.utils import print_payload
 from scapy.fields import (ShortField, IntField, ByteField)
@@ -5,9 +16,17 @@ from scapy.packet import Packet
 from ttp.packet import TTPFlags
 from ttp.constants import SERVER_PORT
 
+# Simple de-duplication set: Scapy's `sniff()` callback can sometimes see
+# the same packet more than once on the loopback interface (e.g. one
+# capture at the "outgoing" point and one at the "incoming" point). Storing
+# a fingerprint of every printed packet avoids printing duplicates.
 seen = set()
 
 class TTP(Packet):
+    # Scapy packet definition mirroring the TTP header layout from
+    # ttp/constants.py's HEADER_FORMAT ("!HHIIBBHHHI"), field for field,
+    # so Scapy can dissect raw TTP segments captured off the wire the same
+    # way it already knows how to dissect TCP/UDP/IP.
     name = "TTP"
 
     fields_desc = [
@@ -24,6 +43,9 @@ class TTP(Packet):
     ]
 
 def get_direction(destination_port):
+    # Since this demo always uses SERVER_PORT (8443) as the well-known
+    # server port, we can infer traffic direction just by checking which
+    # side the destination port matches.
     if destination_port == SERVER_PORT:
         return "CLIENTE → SERVIDOR"
 
@@ -34,6 +56,7 @@ def capture_tcp(pkt):
     ip = pkt[IP]
     tcp = pkt[TCP]
 
+    # Fingerprint used for the `seen` de-duplication set.
     key = (
         "TCP",
         ip.src,
@@ -73,6 +96,8 @@ def capture_tcp(pkt):
 
     flags = str(tcp.flags)
 
+    # Translate Scapy's compact flag-letter string (e.g. "S", "SA", "PA")
+    # into a friendlier, named "Evento" (Event) label.
     if flags == "S":
         print("Evento      : SYN")
 
@@ -133,6 +158,7 @@ def capture_udp(pkt):
 
     print(f"Checksum    : " f"0x{udp.chksum:04X}")
 
+    # UDP has no connection concept, so there's only one possible "event".
     print("Evento      : " "Datagrama UDP")
 
     payload = bytes(udp.payload)
@@ -142,7 +168,7 @@ def capture_udp(pkt):
 def capture_ttp(pkt):
 
     ip = pkt[IP]
-    ttp = pkt[TTP]
+    ttp = pkt[TTP]  # dissected using the custom TTP class defined above
 
     key = (
         "TTP",
@@ -185,6 +211,9 @@ def capture_ttp(pkt):
 
     print(f"Checksum    : " f"0x{ttp.checksum:04X}")
 
+    # Reconstructs the TTPFlags IntFlag from the raw integer, so it can
+    # print a friendly comma-separated list of active flag names
+    # (SYN, ACK, FIN, RST, DATA) instead of a bare number.
     flags = TTPFlags(ttp.flags)
 
     print(f"Flags       : " f"{flags}")
