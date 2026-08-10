@@ -14,11 +14,14 @@ def client(host: str, port: int, message: str) -> None:
 
     connection.connect()
 
-    trp = TTLSSession(connection)
+    ttls = TTLSSession(connection)
     print(f"[Client][TTP] Conectado em {host}:{port}")
 
-    trp.send_record(TTLSRecord(RecordType.APPLICATION_DATA,b"Hello Server"))
+    ttls.send_client_hello()
+    ttls.send_record(TTLSRecord(RecordType.APPLICATION_DATA, message.encode("utf-8")))
+
     #connection.send(message.encode("utf-8"))
+
     print(f"[Client][TTP] Mensagem enviada.")
 
     # aguarda acknowledgements antes de fechar
@@ -38,16 +41,14 @@ def server(host: str, port: int) -> None:
 
     connection = listener.accept()
 
-    trp = TTLSSession(connection)
+    ttls = TTLSSession(connection)
 
     print(f"[Server][TTP] Cliente conectado.")
     
-    record = trp.recv_record()
+    record = ttls.recv_record()
     
-    print(record.payload.decode())
-
     #dados = connection.recv()
 
-    #print(f"[Server][TTP] Mensagem recebida: {dados.decode('utf-8')}")
+    print(f"[Server][TTP] Mensagem recebida: {record.payload.decode('utf-8')}")
 
     connection.close()
