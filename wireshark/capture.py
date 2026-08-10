@@ -10,11 +10,14 @@
 # =============================================================================
 
 from scapy.all import IP, TCP, UDP
-from wireshark.utils import print_payload
+from wireshark.utils import print_payload, hexdump, identify_payload
 from scapy.fields import (ShortField, IntField, ByteField)
 from scapy.packet import Packet
 from ttp.packet import TTPFlags
 from ttp.constants import SERVER_PORT
+from ttls.record import TTLSRecord
+from ttp.constants import TTLS_HEADER_FORMAT, HEADER_FORMAT
+import struct
 
 # Simple de-duplication set: Scapy's `sniff()` callback can sometimes see
 # the same packet more than once on the loopback interface (e.g. one
@@ -187,19 +190,24 @@ def capture_ttp(pkt):
 
     seen.add(key)
 
+    TTLS_HEADER_SIZE = struct.calcsize(TTLS_HEADER_FORMAT)
+    HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
+
     print("=" * 80)
 
-    print("TTP")
+    print("TTP v2")
 
     print(get_direction(ttp.destination_port))
 
     print()
 
+    print(f"Raw Header  : " f"{hexdump(bytes(ttp)[:HEADER_SIZE], ascii=False, offset_space=14)}")  # prints the dissected TTP header fields in a Scapy-friendly format
+
+    print(f"Header      : " f"{ttp.header_length} bytes")
+
     print(f"Origem      : " f"{ip.src}:{ttp.source_port}")
 
     print(f"Destino     : " f"{ip.dst}:{ttp.destination_port}")
-
-    print()
 
     print(f"SEQ         : " f"{ttp.sequence_number}")
 
@@ -216,8 +224,6 @@ def capture_ttp(pkt):
     # (SYN, ACK, FIN, RST, DATA) instead of a bare number.
     flags = TTPFlags(ttp.flags)
 
-    print(f"Flags       : " f"{flags}")
-
     if flags == TTPFlags.NONE:
         print("Evento      : NONE")
 
@@ -226,17 +232,35 @@ def capture_ttp(pkt):
 
         if TTPFlags.SYN in flags:
             events.append("SYN")
-        if TTPFlags.ACK in flags:
-            events.append("ACK")
         if TTPFlags.FIN in flags:
             events.append("FIN")
+        if TTPFlags.ACK in flags:
+            events.append("ACK")
         if TTPFlags.RST in flags:
             events.append("RST")
         if TTPFlags.DATA in flags:
             events.append("DATA")
 
-        print("Evento      : " + ", ".join(events))
+        print("Evento      : " + "-".join(events))
 
     print("Payload     : " + str(len(ttp.payload)) + " bytes")
 
-    print_payload(bytes(ttp.payload))
+    ttls_data = bytes(ttp.payload)
+
+    if len(ttls_data) >= TTLS_HEADER_SIZE:
+        record = TTLSRecord.unpack(ttls_data)
+
+        payload_type = identify_payload(bytes(record.payload))
+    
+        print(f"Tipo        : " f"{payload_type}")
+        print()
+        print(f"TTLS:")
+        print(f"  Raw Header  : " f"{hexdump(ttls_data[:TTLS_HEADER_SIZE], ascii=False, offset_space=14)}")
+        print(f"  Header      : " f"{TTLS_HEADER_SIZE} bytes")
+        print(f"  Version     : " f"v{record.version}.0")
+        print(f"  Type        : " f"{record.record_type.name}")
+        print(f"  Payload     : " f"{len(record.payload)} bytes")
+        print(f"  Raw Payload : " f"{hexdump(ttls_data[TTLS_HEADER_SIZE:], ascii=False, offset_space=14)}")
+
+        print_payload(bytes(record.payload), type_hint=payload_type)
+    

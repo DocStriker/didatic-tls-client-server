@@ -20,21 +20,10 @@ class ReceiveStatus(Enum):
 
 class SequenceSpace:
     """
-    Gerencia o espaço de sequência de uma conexão TTP.
-
-    send_next:
-        Próximo número de sequência a ser utilizado ao enviar.
-
-    send_unacked:
-        Primeiro byte ainda não confirmado pelo receptor.
-
-    recv_next:
-        Próximo byte esperado do remetente.
-
-    (Manages the sequence-number space of a TTP connection.
+    Manages the sequence-number space of a TTP connection.
      send_next    -> next sequence number this side will use when sending.
      send_unacked -> oldest byte we sent that hasn't been ACKed yet.
-     recv_next    -> next byte we expect to receive from the peer.)
+     recv_next    -> next byte we expect to receive from the peer.
     """
 
     def __init__(self, initial_sequence: int | None = None, receive_sequence: int = 0,):
@@ -76,38 +65,33 @@ class SequenceSpace:
     @property
     def bytes_in_flight(self) -> int:
         """
-        Quantidade de bytes enviados e ainda não confirmados.
-        (Amount of data sent but not yet acknowledged -- the classic
-        "in-flight" quantity used for flow/congestion control decisions.)
+        Amount of data sent but not yet acknowledged -- the classic
+        "in-flight" quantity used for flow/congestion control decisions.
         """
         return self.send_next - self.send_unacked
 
     def advance_send(self, amount: int) -> None:
         """
-        Avança o próximo número de sequência disponível.
-        (Called every time we build a packet that consumes sequence space,
-        so the next packet gets the correct following sequence number.)
+        Called every time we build a packet that consumes sequence space,
+        so the next packet gets the correct following sequence number.
         """
         self.send_next += amount
 
     def acknowledge(self, ack_number: int) -> None:
         """
-        Atualiza o maior ACK recebido.
-        (Moves send_unacked forward, but only forward -- an ACK for data we
+        Moves send_unacked forward, but only forward -- an ACK for data we
         already considered acknowledged is simply ignored, protecting
-        against out-of-order or duplicate ACKs rewinding our state.)
+        against out-of-order or duplicate ACKs rewinding our state.
         """
         if ack_number > self.send_unacked:
             self.send_unacked = ack_number
 
     def expect(self, sequence_number: int, amount: int) -> bool:
         """
-        Verifica se o pacote recebido possui o número
-        de sequência esperado.
-        (Strict variant of receive(): only accepts an exact match and
+        Strict variant of receive(): only accepts an exact match and
         advances recv_next; otherwise leaves state untouched and returns
         False. Provided as a simpler alternative to receive()/ReceiveStatus
-        for callers that don't need to distinguish DUPLICATE from FUTURE.)
+        for callers that don't need to distinguish DUPLICATE from FUTURE.
         """
 
         if sequence_number != self.recv_next:

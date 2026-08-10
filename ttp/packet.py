@@ -11,7 +11,7 @@
 #   0                   1                   2                   3
 #   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 #  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-#  |         Source Port          |       Destination Port       |
+#  |         Source Port           |       Destination Port       |
 #  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 #  |                        Sequence Number                       |
 #  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -19,7 +19,7 @@
 #  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 #  |    Flags      | Header Length |            Reserved          |
 #  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-#  |             Window           |         Payload Length        |
+#  |             Window            |         Payload Length       |
 #  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 #  |                           Checksum                           |
 #  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -72,16 +72,12 @@ class TTPPacket:
 
         self.source_port = source_port
         self.destination_port = destination_port
-
         self.sequence_number = sequence_number
         self.acknowledgment_number = acknowledgment_number
-
         self.flags = flags
         self.header_length = self.HEADER_SIZE
         self.reserved = 0
-
         self.window = window_size
-
         self.payload = payload
         self.checksum = checksum
 
@@ -93,17 +89,13 @@ class TTPPacket:
 
         header = struct.pack(
             HEADER_FORMAT,
-
             self.source_port,
             self.destination_port,
-
             self.sequence_number,
             self.acknowledgment_number,
-
             self.flags,
             self.header_length,
             self.reserved,
-
             self.window,
             self.payload_length,
             self.checksum,
@@ -194,11 +186,10 @@ class TTPPacket:
     @property
     def sequence_space(self) -> int:
         """
-        Quantidade de números de sequência consumidos por este pacote.
-        (How many sequence numbers this packet "uses up". Just like TCP,
+        How many sequence numbers this packet "uses up". Just like TCP,
         SYN and FIN each consume exactly one sequence number even though
         they carry no payload bytes -- this lets the receiver ACK them
-        unambiguously.)
+        unambiguously.
         """
 
         size = len(self.payload)

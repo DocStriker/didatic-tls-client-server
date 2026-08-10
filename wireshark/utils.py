@@ -7,9 +7,11 @@
 # type sniffer so the output is easier to read at a glance.
 # =============================================================================
 
-def hexdump(data: bytes, width: int = 16):
+def hexdump(data: bytes, width: int = 16, ascii: bool = True, offset_space: int = 0) -> str:
     # Classic hex + ASCII dump, `width` bytes per line:
     #   OFFSET  HEX BYTES...                                    ASCII
+    hex_lines = ""
+
     for offset in range(0, len(data), width):
         chunk = data[offset:offset + width]
 
@@ -18,7 +20,9 @@ def hexdump(data: bytes, width: int = 16):
         # Printable ASCII range is 32-126; anything else shown as '.'.
         ascii_bytes = "".join(chr(byte) if 32 <= byte <= 126 else "." for byte in chunk)
 
-        print(f"{offset:04X}  " f"{hex_bytes:<48}  " f"{ascii_bytes}")
+        hex_lines += (f"{offset:04X}  " f"{hex_bytes:<48}  " f"{ascii_bytes if ascii else ''}") + "\n" + " " * offset_space
+
+    return hex_lines
 
 def identify_payload(data: bytes):
     # Heuristic content-type sniffer: tries UTF-8 text first, then checks
@@ -54,7 +58,7 @@ def identify_payload(data: bytes):
 
     return "Dados Binários"
 
-def print_payload(payload: bytes):
+def print_payload(payload: bytes, type_hint: str = None):
     # Prints either the decoded text or a hexdump, depending on what
     # identify_payload() guessed, wrapped in a small "-----" separator so
     # it stands out in the console alongside the packet header fields
@@ -63,13 +67,7 @@ def print_payload(payload: bytes):
         return
 
     try:
-        payload_type = identify_payload(payload)
-
-        print(f"Tipo        : " f"{payload_type}")
-
-        print()
-
-        if payload_type == "Texto UTF-8":
+        if type_hint == "Texto UTF-8":
             print("Conteúdo")
             print("-" * 40)
             print(payload.decode("utf-8",errors="replace"))
@@ -78,7 +76,7 @@ def print_payload(payload: bytes):
         else:
             print("Hexdump")
             print("-" * 40)
-            hexdump(payload)
+            print(hexdump(payload))
             print("-" * 40)
 
     except Exception as e:
@@ -87,5 +85,5 @@ def print_payload(payload: bytes):
         print(f"Erro ao processar payload: {e}")
         print("Hexdump")
         print("-" * 40)
-        hexdump(payload)
+        print(hexdump(payload))
         print("-" * 40)

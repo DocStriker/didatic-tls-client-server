@@ -96,7 +96,7 @@ class TTPConnection:
             payload=payload
         )
 
-        #print(packet.payload_length)
+        #print(packet)
 
         if packet.consumes_sequence:
             self.sequence.advance_send(packet.sequence_space)

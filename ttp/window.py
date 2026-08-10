@@ -17,15 +17,13 @@ class SendWindow:
     def __init__(self, size: int = 65535):
         self.size = size
 
-        # Pacotes aguardando envio
-        # (Packets waiting to be sent -- not yet transmitted at all.)
+        # Packets waiting to be sent -- not yet transmitted at all.
         self.queue: deque[TTPPacket] = deque()
 
-        # Pacotes enviados e ainda não confirmados
-        # (Packets already transmitted but not yet acknowledged, keyed by
+        # Packets already transmitted but not yet acknowledged, keyed by
         # their starting sequence number. OrderedDict preserves insertion
         # order, so `oldest()` below can cheaply find the earliest unacked
-        # packet -- the one whose retransmission timer matters most.)
+        # packet -- the one whose retransmission timer matters most.
         self.pending: OrderedDict[int, TTPPacket] = OrderedDict()
 
     # ----------------------------------------------------
@@ -33,15 +31,11 @@ class SendWindow:
     # ----------------------------------------------------
 
     def enqueue(self, packet: TTPPacket) -> None:
-        """
-        Adiciona um pacote para envio.
-        """
         self.queue.append(packet)
 
     def next_packet(self) -> TTPPacket | None:
         """
-        Retorna o próximo pacote aguardando envio.
-        (Peeks at, without removing, the head of the send queue.)
+        Peeks at, without removing, the head of the send queue.
         """
         if not self.queue:
             return None
@@ -50,9 +44,8 @@ class SendWindow:
 
     def mark_sent(self) -> TTPPacket | None:
         """
-        Move um pacote da fila para a lista de pendentes.
-        (Pops the head of the queue and moves it into `pending`, tracked by
-        its sequence number so it can later be matched against an ACK.)
+        Pops the head of the queue and moves it into `pending`, tracked by
+        its sequence number so it can later be matched against an ACK.
         """
         if not self.queue:
             return None

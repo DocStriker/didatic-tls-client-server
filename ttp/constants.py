@@ -48,6 +48,12 @@ HEADER_FORMAT = "!HHIIBBHHHI"
 #   4s destination_address (raw 4-byte IPv4 address)
 HEADER_FORMAT_IPV4 = "!BBHHHBBH4s4s"
 
+# struct format string for the TTLS header (see ttls/record.py):
+#   B  type
+#   B  version
+#   I  length
+TTLS_HEADER_FORMAT = "!BBI"
+
 # Default TCP/UDP/TTP port used across the demo scripts and the Wireshark
 # helper (wireshark/sniffer.py) to recognize which packets belong to this
 # project's traffic.

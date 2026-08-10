@@ -33,11 +33,9 @@ class TTPSocket:
 
     def _create_send_socket(self) -> socket.socket:
         """
-        Socket utilizado somente para envio.
-        Espera um pacote IPv4 completo.
-        (Send-only socket. IPPROTO_RAW + IP_HDRINCL means the kernel will
+        Send-only socket. IPPROTO_RAW + IP_HDRINCL means the kernel will
         NOT add its own IP header -- we must supply a complete, valid IPv4
-        datagram ourselves, which is exactly what IPv4Packet.pack() builds.)
+        datagram ourselves, which is exactly what IPv4Packet.pack() builds.
         """
 
         sock = socket.socket(
@@ -56,12 +54,10 @@ class TTPSocket:
 
     def _create_receive_socket(self) -> socket.socket:
         """
-        Socket utilizado somente para recepção.
-        Recebe apenas pacotes cujo protocolo seja o TTP.
-        (Receive-only socket. Opening a raw socket with our custom protocol
+        Receive-only socket. Opening a raw socket with our custom protocol
         number (253) as the third argument tells the kernel to hand us only
         IP datagrams whose "Protocol" field matches TTP_PROTOCOL -- so we
-        never see stray TCP/UDP/ICMP traffic here.)
+        never see stray TCP/UDP/ICMP traffic here.
         """
 
         sock = socket.socket(
@@ -94,9 +90,8 @@ class TTPSocket:
 
     def _build_raw_packet(self, source_ip: str, destination_ip: str, packet: TTPPacket) -> bytes:
         """
-        Constrói um datagrama IPv4 contendo um segmento TTP.
-        (Builds a complete IPv4 datagram carrying a TTP segment as its
-        payload, with a correctly computed TTP checksum.)
+        Builds a complete IPv4 datagram carrying a TTP segment as its
+        payload, with a correctly computed TTP checksum.
         """
 
         # Work on a copy so we never mutate the caller's original packet
@@ -126,11 +121,9 @@ class TTPSocket:
 
     def _parse_raw_packet(self, raw_packet: bytes) -> tuple[TTPPacket, IPv4Packet]:
         """
-        Desencapsula um datagrama IPv4 e retorna
-        o segmento TTP correspondente.
-        (Unwraps a raw IPv4 datagram and returns the TTP segment inside it,
+        Unwraps a raw IPv4 datagram and returns the TTP segment inside it,
         after validating that the protocol number is TTP and that the
-        checksum matches.)
+        checksum matches.
         """
 
         ipv4 = IPv4Packet.unpack(raw_packet)
