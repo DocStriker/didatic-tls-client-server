@@ -1,6 +1,7 @@
 from ttp.connection import TTPConnection
-from ttls.session import TTLSSession
+from ttls.session import TTLSSession, TTLSState
 from ttls.record import TTLSRecord, RecordType
+from ttls.handshake import select_cipher_suite
 
 def client(host: str, port: int, message: str) -> None:
     connection = TTPConnection(
@@ -15,17 +16,46 @@ def client(host: str, port: int, message: str) -> None:
     connection.connect()
 
     ttls = TTLSSession(connection)
+
     print(f"[Client][TTP] Conectado em {host}:{port}")
 
+    # 1. TTLS ClientHello
     ttls.send_client_hello()
-    ttls.send_record(TTLSRecord(RecordType.APPLICATION_DATA, message.encode("utf-8")))
 
-    #connection.send(message.encode("utf-8"))
+    ttls.state = TTLSState.CLIENT_HELLO_SENT
 
-    print(f"[Client][TTP] Mensagem enviada.")
+    # 2. Aguarda ServerHello
+    server_hello = ttls.recv_server_hello()
 
-    # aguarda acknowledgements antes de fechar
-    connection.wait_for_acks(timeout=3.0)
+    ttls.state = TTLSState.SERVER_HELLO_RECEIVED
+
+    print(
+        f"[Client][TTLS] Cipher suite selecionada: "
+        f"{server_hello.cipher_suite.name}"
+    )
+
+    ttls.send_finished()
+
+    ttls.state = TTLSState.ESTABLISHED
+
+    print("[Client][TTLS] Handshake concluído.")
+
+    # 3. Só depois do handshake podemos enviar dados
+    ttls.send_record(
+        TTLSRecord(
+            RecordType.APPLICATION_DATA,
+            message.encode("utf-8")
+        )
+    )
+
+    print("[Client][TTLS] Mensagem enviada.")
+
+    # Aguarda brevemente por ACKs antes de fechar; reduzir para 0.5s
+    # diminui latência de fechamento em ambientes de teste.
+    acked = connection.wait_for_acks()
+
+    if not acked:
+        print("[Client][TTP] Timeout aguardando ACKs.")
 
     connection.close()
 
@@ -37,18 +67,40 @@ def server(host: str, port: int) -> None:
         side_name="Server"
     )
 
-    print(f"[Server][TTP] Aguardando conexões em {host}:{port}")
+    print(f"[Server][TTP] Aguardando conexões em {host}:{port}") 
 
     connection = listener.accept()
 
     ttls = TTLSSession(connection)
 
-    print(f"[Server][TTP] Cliente conectado.")
-    
-    record = ttls.recv_record()
-    
-    #dados = connection.recv()
+    client_hello = ttls.recv_client_hello()
 
-    print(f"[Server][TTP] Mensagem recebida: {record.payload.decode('utf-8')}")
+    cipher_suite = select_cipher_suite(
+        client_hello.cipher_suite
+    )
+
+    ttls.send_server_hello(cipher_suite)
+
+    print("[Server][TTLS] ServerHello enviado.")
+
+    ttls.recv_finished()
+
+    ttls.send_finished()
+
+    print("[Server][TTLS] Handshake concluído.")
+
+    ttls.state = TTLSState.ESTABLISHED
+
+    record = ttls.recv_record()
+
+    if record.record_type != RecordType.APPLICATION_DATA:
+        raise ValueError(
+            "Esperado APPLICATION_DATA."
+        )
+
+    print(
+        f"[Server][TTLS] Mensagem recebida: "
+        f"{record.payload.decode('utf-8')}"
+    )
 
     connection.close()

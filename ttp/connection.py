@@ -20,6 +20,7 @@
 
 import threading
 import time
+import socket
 
 from ttp.sequence import SequenceSpace, ReceiveStatus
 from ttp.packet import TTPPacket, TTPFlags,TTPState
@@ -53,7 +54,10 @@ class TTPConnection:
 
         self.state = TTPState.CLOSED
         self.sequence = SequenceSpace()
-        self.socket = TTPSocket()
+        # Use a small receive timeout so the receive loop can periodically
+        # wake up and perform retransmission checks / respond to shutdown
+        # requests instead of blocking forever in recvfrom().
+        self.socket = TTPSocket(timeout=0.5)
         # Separate RetransmissionManager instances for regular DATA packets
         # and for the closing FIN packet, since they are tracked
         # independently (a data retransmission timeout should not affect
@@ -111,7 +115,13 @@ class TTPConnection:
         # Anything else is silently discarded and we keep waiting -- this
         # filters out unrelated traffic sharing the same raw socket.
         while True:
-            packet, ipv4 = self.socket.receive_packet()
+            try:
+                packet, ipv4 = self.socket.receive_packet()
+            except socket.timeout:
+                # No packet arrived within the socket timeout; caller will
+                # typically loop again (or the receive thread can use this
+                # opportunity to check timers / shutdown flags).
+                continue
 
             if packet.destination_port != self.local_port:
                 continue
@@ -302,6 +312,21 @@ class TTPConnection:
             try:
                 packet, _ = self._wait_for_packet()
 
+                # Periodic retransmission check: if the retransmission timer
+                # expired for the oldest in-flight DATA packet, resend it.
+                if self.retransmission.running and self.retransmission.expired:
+                    oldest = self.window.oldest()
+
+                    if oldest is not None:
+                        # If we've already exhausted retries, just log and
+                        # let wait_for_acks() / callers decide to abort.
+                        if self.retransmission.exhausted:
+                            self.logger_manager.log("[TTP] Retransmissão exaurida para DATA.")
+                        else:
+                            self._transmit_packet(oldest)
+                            self.logger_manager.log(f"[TTP] Retransmitindo SEQ={oldest.sequence_number}")
+                            self.retransmission.restart()
+
                 if packet.is_ack:
                     # FIN_ACK recebido, sinaliza para o close() que o outro lado reconheceu nosso FIN
                     # (Received an ACK. If we're in FIN_WAIT, this specific
@@ -331,10 +356,11 @@ class TTPConnection:
                     self.logger_manager.log("[DEBUG] Entrou no DATA")
                     self._process_data(packet)          
 
-            except Exception as e:
+            except Exception:
                 # Any unexpected error (e.g. the socket was closed while
                 # recvfrom() was blocked) tears down the loop instead of
-                # spinning forever.
+                # spinning forever. Avoid raising here to keep shutdown
+                # behaviour predictable.
                 import traceback
                 traceback.print_exc()
                 break

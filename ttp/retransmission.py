@@ -11,7 +11,7 @@
 from ttp.timer import TTPTimer
 
 class RetransmissionManager:
-    def __init__(self, timeout: float = 1.0, max_retries: int = 5):
+    def __init__(self, timeout: float = 1.0, max_retries: int =5):
         self.timer = TTPTimer(timeout)
         self.max_retries = max_retries
         self.timeout = timeout
@@ -36,6 +36,10 @@ class RetransmissionManager:
     @property
     def expired(self):
         return self.timer.expired
+
+    @property
+    def running(self):
+        return self.timer.running
 
     @property
     def exhausted(self):
