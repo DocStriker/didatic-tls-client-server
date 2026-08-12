@@ -12,9 +12,10 @@ def client(host: str, port: int, message: str) -> None:
     window_size=4096,
     side_name="Client"
 )
-
+    # Inicia a conexão TTP com o servidor
     connection.connect()
 
+    # Inicia a sessão TTLS sobre a conexão TTP
     ttls = TTLSSession(connection)
 
     print(f"[Client][TTP] Conectado em {host}:{port}")
@@ -41,12 +42,7 @@ def client(host: str, port: int, message: str) -> None:
     print("[Client][TTLS] Handshake concluído.")
 
     # 3. Só depois do handshake podemos enviar dados
-    ttls.send_record(
-        TTLSRecord(
-            RecordType.APPLICATION_DATA,
-            message.encode("utf-8")
-        )
-    )
+    ttls.send_record(TTLSRecord(RecordType.APPLICATION_DATA, message.encode("utf-8")))
 
     print("[Client][TTLS] Mensagem enviada.")
 
@@ -75,9 +71,7 @@ def server(host: str, port: int) -> None:
 
     client_hello = ttls.recv_client_hello()
 
-    cipher_suite = select_cipher_suite(
-        client_hello.cipher_suite
-    )
+    cipher_suite = select_cipher_suite(client_hello.cipher_suite)
 
     ttls.send_server_hello(cipher_suite)
 
@@ -94,9 +88,7 @@ def server(host: str, port: int) -> None:
     record = ttls.recv_record()
 
     if record.record_type != RecordType.APPLICATION_DATA:
-        raise ValueError(
-            "Esperado APPLICATION_DATA."
-        )
+        raise ValueError("Esperado APPLICATION_DATA.")
 
     print(
         f"[Server][TTLS] Mensagem recebida: "

@@ -1,9 +1,9 @@
 from ttls.record import TTLSRecord, RecordType
-from ttls.handshake import ClientHello, ServerHello, Finished, CipherSuite
+from ttls.handshake import ClientHello, ServerHello, Finished, CipherSuite, HandshakeMessage, HandshakeType
+from ttls.transcript import HandshakeTranscript
 from enum import Enum
 
 class TTLSState(Enum):
-
     NEW = 0
 
     CLIENT_HELLO_SENT = 1
@@ -22,6 +22,7 @@ class TTLSSession:
             recv() -> bytes
         """
         self.transport = transport
+        self.transcript = HandshakeTranscript()
 
     def send_record(self, record: TTLSRecord):
         self.transport.send(record.pack())
@@ -32,69 +33,79 @@ class TTLSSession:
         return TTLSRecord.unpack(data)
 
     def send_client_hello(self):
-        hello = ClientHello(
-            CipherSuite.TTLS_KYBER
-        )
+        hello = ClientHello(CipherSuite.TTLS_AES_256_GCM)
 
-        record = TTLSRecord(
-            RecordType.HANDSHAKE,
-            hello.pack()
-        )
+        message = HandshakeMessage(HandshakeType.CLIENT_HELLO, hello.pack())
 
+        self.transcript.add(message.pack())
+
+        record = TTLSRecord(RecordType.HANDSHAKE, message.pack())
+
+        self.send_record(record)
+
+    def send_server_hello(self, cipher_suite):
+        hello = ServerHello(cipher_suite)
+    
+        message = HandshakeMessage(HandshakeType.SERVER_HELLO, hello.pack())
+    
+        self.transcript.add(message.pack())
+    
+        record = TTLSRecord(RecordType.HANDSHAKE, message.pack())
+    
+        self.send_record(record)
+
+    def send_finished(self):
+        verify_data = self.transcript.digest()
+
+        finished = Finished(verify_data)
+    
+        message = HandshakeMessage(HandshakeType.FINISHED, finished.pack())
+        
+        record = TTLSRecord(RecordType.HANDSHAKE, message.pack(),)
+    
         self.send_record(record)
 
     def recv_client_hello(self) -> ClientHello:
+        message = self.recv_handshake_message()
 
-        record = self.recv_record()
+        self.transcript.add(message.pack())
 
-        if record.record_type != RecordType.HANDSHAKE:
-            raise ValueError(
-                "Esperado um registro HANDSHAKE."
-            )
+        if message.message_type != HandshakeType.CLIENT_HELLO:
+            raise ValueError("Esperado CLIENT_HELLO.")
 
-        return ClientHello.unpack(record.payload)
-
-    def send_server_hello(self, cipher_suite):
-
-        hello = ServerHello(cipher_suite)
-
-        record = TTLSRecord(
-            RecordType.HANDSHAKE,
-            hello.pack(),
-        )
-
-        self.send_record(record)
+        return ClientHello.unpack(message.payload)
 
     def recv_server_hello(self) -> ServerHello:
-        record = self.recv_record()
+        message = self.recv_handshake_message()
 
-        if record.record_type != RecordType.HANDSHAKE:
-            raise ValueError(
-                "Esperado um registro HANDSHAKE."
-            )
+        self.transcript.add(message.pack())
 
-        return ServerHello.unpack(record.payload)
+        if message.message_type != HandshakeType.SERVER_HELLO:
+            raise ValueError("Esperado SERVER_HELLO.")
 
-    def send_finished(self):
-
-        finished = Finished()
-
-        record = TTLSRecord(
-            RecordType.HANDSHAKE,
-            finished.pack()
-        )
-
-        self.send_record(record)
+        return ServerHello.unpack(message.payload)
 
     def recv_finished(self) -> Finished:
+        message = self.recv_handshake_message()
 
+        if message.message_type != HandshakeType.FINISHED:
+            raise ValueError("Esperado FINISHED.")
+
+        finished = Finished.unpack(message.payload)
+
+        expected = self.transcript.digest()
+
+        if finished.verify_data != expected:
+            raise ValueError("Finished inválido: transcript não confere.")
+
+        return finished
+
+    def recv_handshake_message(self) -> HandshakeMessage:
         record = self.recv_record()
 
         if record.record_type != RecordType.HANDSHAKE:
-            raise ValueError(
-                "Esperado um registro HANDSHAKE."
-            )
+            raise ValueError("Esperado um registro HANDSHAKE.")
 
-        return Finished.unpack(
-            record.payload
-        )
+        message = HandshakeMessage.unpack(record.payload)
+
+        return message

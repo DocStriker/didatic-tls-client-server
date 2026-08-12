@@ -16,6 +16,7 @@ from scapy.packet import Packet
 from ttp.packet import TTPFlags
 from ttp.constants import SERVER_PORT
 from ttls.record import TTLSRecord
+from ttls.handshake import HandshakeType
 from ttp.constants import TTLS_HEADER_FORMAT, HEADER_FORMAT
 import struct
 
@@ -252,15 +253,25 @@ def capture_ttp(pkt):
 
         payload_type = identify_payload(bytes(record.payload))
     
-        print(f"Tipo        : " f"{payload_type}")
+        print(f"Tipo           : " f"{payload_type}")
         print()
         print(f"TTLS:")
-        print(f"  Raw Header  : " f"{hexdump(ttls_data[:TTLS_HEADER_SIZE], ascii=False, offset_space=14)}")
-        print(f"  Header      : " f"{TTLS_HEADER_SIZE} bytes")
-        print(f"  Version     : " f"v{record.version}.0")
-        print(f"  Type        : " f"{record.record_type.name}")
-        print(f"  Payload     : " f"{len(record.payload)} bytes")
-        print(f"  Raw Payload : " f"{hexdump(ttls_data[TTLS_HEADER_SIZE:], ascii=False, offset_space=14)}")
+        print(f"  Raw Header     : " f"{hexdump(ttls_data[:TTLS_HEADER_SIZE], ascii=False, offset_space=17)}")
+        print(f"  Header         : " f"{TTLS_HEADER_SIZE} bytes")
+        print(f"  Version        : " f"v{record.version}.0")
+        print(f"  Type           : " f"{record.record_type.name}")
 
-        print_payload(bytes(record.payload), type_hint=payload_type)
+        if record.record_type == record.record_type.HANDSHAKE:
+            if record.payload == b"\x01":
+                print(f"  Handshake Type : " f"ClientHello")
+            elif record.payload == b"\x02":
+                print(f"  Handshake Type : " f"ServerHello")
+            elif record.payload == b"\x03":
+                print(f"  Handshake Type : " f"Finished")
+                
+        print(f"  Payload        : " f"{len(record.payload)} bytes")
+        print(f"  Raw Payload    : " f"{hexdump(ttls_data[TTLS_HEADER_SIZE:], ascii=False, offset_space=17)}")
+
+        if record.record_type != record.record_type.HANDSHAKE:
+            print_payload(bytes(record.payload), type_hint=payload_type)
     
