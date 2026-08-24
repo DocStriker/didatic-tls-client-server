@@ -1,6 +1,7 @@
 from ttls.record import TTLSRecord, RecordType
 from ttls.handshake import ClientHello, ServerHello, Finished, CipherSuite, HandshakeMessage, HandshakeType
 from ttls.transcript import HandshakeTranscript
+from ttls.cipher import TTLSCipher
 from enum import Enum
 
 class TTLSState(Enum):
@@ -16,13 +17,14 @@ class TTLSState(Enum):
     ESTABLISHED = 6
 
 class TTLSSession:
-    def __init__(self, transport):
+    def __init__(self, transport, cipher: TTLSCipher | None = None):
         """
             send(data: bytes)
             recv() -> bytes
         """
         self.transport = transport
         self.transcript = HandshakeTranscript()
+        self.cipher = cipher
 
     def send_record(self, record: TTLSRecord):
         self.transport.send(record.pack())
@@ -31,6 +33,28 @@ class TTLSSession:
         data = self.transport.recv()
 
         return TTLSRecord.unpack(data)
+
+    def send_application_data(self, data: bytes):
+        if self.cipher is None:
+            record = TTLSRecord(RecordType.APPLICATION_DATA, data)
+
+            self.send_record(record)
+
+            return
+
+        encrypted_length = (self.cipher.NONCE_SIZE + len(data) + 16)
+
+        header = TTLSRecord.build_header(
+            RecordType.APPLICATION_DATA,
+            1,
+            encrypted_length,
+        )
+
+        encrypted_payload = self.cipher.encrypt(data, associated_data=header)
+
+        record = TTLSRecord(RecordType.APPLICATION_DATA, encrypted_payload)
+
+        self.send_record(record)
 
     def send_client_hello(self):
         hello = ClientHello(CipherSuite.TTLS_AES_256_GCM)
@@ -64,6 +88,19 @@ class TTLSSession:
         record = TTLSRecord(RecordType.HANDSHAKE, message.pack(),)
     
         self.send_record(record)
+
+    def recv_application_data(self) -> bytes:
+        record = self.recv_record()
+
+        if record.record_type != RecordType.APPLICATION_DATA:
+            raise ValueError("Esperado APPLICATION_DATA.")
+
+        if self.cipher is None:
+            return record.payload
+
+        header = record.pack_header()
+
+        return self.cipher.decrypt(record.payload, associated_data=header)
 
     def recv_client_hello(self) -> ClientHello:
         message = self.recv_handshake_message()

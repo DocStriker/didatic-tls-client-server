@@ -45,15 +45,26 @@ class TTLSRecord:
         self.version = self.VERSION  # fixed version for this didactic protocol
         self.payload = payload
 
-    def pack(self) -> bytes:
-        # Serializes header + payload into the exact bytes to put on the wire.
-        header = struct.pack(
-            TTLS_HEADER_FORMAT,
+    def pack_header(self) -> bytes:
+        return self.build_header(
             self.record_type,
             self.version,
-            len(self.payload)
+            len(self.payload),
         )
-        return header + self.payload
+
+    def pack(self) -> bytes:
+        # Serializes header + payload into the exact bytes to put on the wire.
+        return self.pack_header() + self.payload
+
+    @classmethod
+    def build_header(cls, record_type: RecordType, version: int, payload_length: int) -> bytes:
+        # Builds a TTLS header from its components, without any payload.
+        return struct.pack(
+            TTLS_HEADER_FORMAT,
+            record_type,
+            version,
+            payload_length,
+        )
 
     @classmethod
     def unpack(cls, data: bytes):
@@ -71,13 +82,9 @@ class TTLSRecord:
         payload = data[cls.HEADER_SIZE:]
 
         if len(payload) != length:
-            raise ValueError(
-                f"Payload inválido. Esperado {length} bytes, recebido {len(payload)}."
-            )
+            raise ValueError(f"Payload inválido. Esperado {length} bytes, recebido {len(payload)}.")
         
         if version != cls.VERSION:
-            raise ValueError(
-                f"Versão TTLS não suportada: {version}"
-            )
+            raise ValueError(f"Versão TTLS não suportada: {version}")
 
         return cls(RecordType(record_type), payload)
