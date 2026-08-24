@@ -12,7 +12,7 @@ class TTLSCipher:
         if len(key) != self.KEY_SIZE:
             raise ValueError("A chave AES-256 deve possuir 32 bytes.")
 
-        self.key = key
+        self._key = key
         self.aes = AESGCM(key)
 
     @classmethod
@@ -43,6 +43,10 @@ class TTLSCipher:
         ciphertext = data[self.NONCE_SIZE:]
 
         return self.aes.decrypt(nonce, ciphertext, associated_data)
+
+    @property
+    def key(self) -> bytes:
+        return self._key
 
 if __name__ == "__main__":
     # Teste rápido

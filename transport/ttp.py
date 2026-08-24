@@ -1,7 +1,10 @@
+import hashlib
+
 from ttp.connection import TTPConnection
 from ttls.session import TTLSSession, TTLSState
 from ttls.record import TTLSRecord, RecordType
 from ttls.handshake import select_cipher_suite
+from ttls.cipher import TTLSCipher
 
 def client(host: str, port: int, message: str) -> None:
     connection = TTPConnection(
@@ -12,6 +15,7 @@ def client(host: str, port: int, message: str) -> None:
     window_size=4096,
     side_name="Client"
 )
+    
     # Inicia a conexão TTP com o servidor
     connection.connect()
 
@@ -37,12 +41,23 @@ def client(host: str, port: int, message: str) -> None:
 
     ttls.send_finished()
 
+    # O ServerHello e o Finished do servidor fazem parte do handshake TTLS.
+    # Sem aguardar esse Finished, o cliente pode enviar FIN enquanto o
+    # servidor ainda está concluindo o handshake.
+    ttls.recv_finished()
+
     ttls.state = TTLSState.ESTABLISHED
 
     print("[Client][TTLS] Handshake concluído.")
 
     # 3. Só depois do handshake podemos enviar dados
-    ttls.send_record(TTLSRecord(RecordType.APPLICATION_DATA, message.encode("utf-8")))
+    # ttls.send_record(TTLSRecord(RecordType.APPLICATION_DATA, message.encode("utf-8")))
+
+    shared_secret = hashlib.sha256(b"TTLS TEST SECRET").digest()
+
+    ttls.cipher = TTLSCipher.from_shared_secret(shared_secret)
+
+    ttls.send_application_data(message.encode("utf-8"))
 
     print("[Client][TTLS] Mensagem enviada.")
 
@@ -53,7 +68,11 @@ def client(host: str, port: int, message: str) -> None:
     if not acked:
         print("[Client][TTP] Timeout aguardando ACKs.")
 
+    print("[Client] Iniciando close()")
+
     connection.close()
+
+    print("[Client] Conexão encerrada")
 
 def server(host: str, port: int) -> None:
     listener = TTPConnection(
@@ -69,15 +88,21 @@ def server(host: str, port: int) -> None:
 
     ttls = TTLSSession(connection)
 
-    client_hello = ttls.recv_client_hello()
+    print("[Server][TTP] Estado após accept:", connection.state)
 
+    client_hello = ttls.recv_client_hello()
+    
     cipher_suite = select_cipher_suite(client_hello.cipher_suite)
+
+    print("[Server][TTP] Estado após ClientHello:", connection.state)
 
     ttls.send_server_hello(cipher_suite)
 
-    print("[Server][TTLS] ServerHello enviado.")
+    print( "[Server][TTP] Estado após ServerHello:", connection.state)
 
     ttls.recv_finished()
+
+    print( "[Server][TTP] Estado antes do Server Finished:", connection.state )
 
     ttls.send_finished()
 
@@ -85,14 +110,29 @@ def server(host: str, port: int) -> None:
 
     ttls.state = TTLSState.ESTABLISHED
 
-    record = ttls.recv_record()
+    # record = ttls.recv_record()
 
-    if record.record_type != RecordType.APPLICATION_DATA:
-        raise ValueError("Esperado APPLICATION_DATA.")
+    shared_secret = hashlib.sha256(b"TTLS TEST SECRET").digest()
+    
+    ttls.cipher = TTLSCipher.from_shared_secret(shared_secret)
+
+    plaintext = ttls.recv_application_data()
 
     print(
         f"[Server][TTLS] Mensagem recebida: "
-        f"{record.payload.decode('utf-8')}"
+        f"{plaintext.decode('utf-8')}"
     )
 
+    # if record.record_type != RecordType.APPLICATION_DATA:
+    #    raise ValueError("Esperado APPLICATION_DATA.")
+
+    # print(
+    #     f"[Server][TTLS] Mensagem recebida: "
+    #     f"{record.payload.decode('utf-8')}"
+    # )
+
+    print("[Server] Iniciando close()")
+
     connection.close()
+
+    print("[Server] Conexão encerrada")

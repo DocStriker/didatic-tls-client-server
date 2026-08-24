@@ -356,6 +356,18 @@ class TTPConnection:
                     self.logger_manager.log("[DEBUG] Entrou no DATA")
                     self._process_data(packet)          
 
+            except OSError as error:
+                # Fechar o socket interrompe recvfrom() da thread de recepção.
+                # Esse erro é esperado durante o encerramento e não deve ser
+                # exibido como traceback.
+                if not self.socket.is_open:
+                    self.logger_manager.log(
+                        f"[TTP] Receive Loop encerrado: {error}"
+                    )
+                    break
+
+                raise
+
             except Exception:
                 # Any unexpected error (e.g. the socket was closed while
                 # recvfrom() was blocked) tears down the loop instead of

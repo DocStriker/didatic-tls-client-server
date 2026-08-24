@@ -27,7 +27,7 @@ MAX_PACKET_SIZE = 65535
 #   I  acknowledgment_number  (4 bytes, unsigned int)
 #   B  flags                  (1 byte)
 #   B  header_length          (1 byte)
-#   H  reserved                (2 bytes)
+#   H  reserved               (2 bytes)
 #   H  window                 (2 bytes)
 #   H  payload_length         (2 bytes)
 #   I  checksum               (4 bytes)
