@@ -40,7 +40,8 @@ class TTPConnection:
         remote_port: int | None = None,
         window_size: int = DEFAULT_WINDOW_SIZE,
         side_name: str = "unknown",
-        socket = None
+        socket: TTPSocket | None = None,
+        owns_socket : bool = True
     ):
         # remote_ip/remote_port are optional: a "server" / listener side
         # typically doesn't know its peer yet -- it will learn it from the
@@ -59,6 +60,7 @@ class TTPConnection:
         # wake up and perform retransmission checks / respond to shutdown
         # requests instead of blocking forever in recvfrom().
         self.socket = socket or TTPSocket(timeout=0.5)
+        self.owns_socket = owns_socket
         # Separate RetransmissionManager instances for regular DATA packets
         # and for the closing FIN packet, since they are tracked
         # independently (a data retransmission timeout should not affect
@@ -463,6 +465,30 @@ class TTPConnection:
 
         self.state = TTPState.ESTABLISHED
 
+    def _server_handshake_from_syn(self, syn: TTPPacket):
+        self.logger_manager.log("[TTP] SYN recebido pelo listener.")
+
+        self.remote_port = syn.source_port
+
+        self.sequence.recv_next = (
+            syn.sequence_number + syn.sequence_space
+        )
+
+        syn_ack_packet = self._build_packet(
+            TTPFlags.SYN | TTPFlags.ACK
+        )
+
+        self._transmit_packet(syn_ack_packet)
+
+        self.state = TTPState.SYN_RECEIVED
+
+        ack, _ = self._wait_for_packet(TTPFlags.ACK)
+
+        if ack.acknowledgment_number != self.sequence.send_next:
+            raise RuntimeError("ACK inválido.")
+
+        self.state = TTPState.ESTABLISHED
+
     def wait_for_acks(self, timeout: float = 5.0) -> bool:
             """
             Blocks until every packet currently in the send window has been
@@ -564,7 +590,8 @@ class TTPConnection:
             return
 
         if self.state != TTPState.ESTABLISHED:
-            self.socket.close()
+            if self.owns_socket:
+                self.socket.close()
 
             self.state = TTPState.CLOSED
 
@@ -574,8 +601,6 @@ class TTPConnection:
 
         self.state = TTPState.FIN_WAIT
 
-        fin = self._build_packet(TTPFlags.FIN)
-
         self._send_fin()
 
         if not self._wait_fin_ack():
@@ -583,7 +608,8 @@ class TTPConnection:
             # anyway rather than hanging forever.
             self.logger_manager.log("[TTP] Timeout aguardando ACK do FIN.")
 
-            self.socket.close()
+            if self.owns_socket:
+                self.socket.close()
 
             self.state = TTPState.CLOSED
 
@@ -597,7 +623,8 @@ class TTPConnection:
 
         self.receive_buffer.clear()
 
-        self.socket.close()
+        if self.owns_socket:
+            self.socket.close()
 
         self.state = TTPState.CLOSED
 

@@ -5,6 +5,7 @@ from ttls.session import TTLSSession, TTLSState
 from ttls.record import TTLSRecord, RecordType
 from ttls.handshake import select_cipher_suite
 from ttls.cipher import TTLSCipher
+from ttp.server import TTPServer
 
 def client(host: str, port: int, message: str) -> None:
     connection = TTPConnection(
@@ -75,12 +76,14 @@ def client(host: str, port: int, message: str) -> None:
     #print("[Client] Conexão encerrada")
 
 def server(host: str, port: int) -> None:
-    listener = TTPConnection(
+    listener = TTPServer(
         local_ip=host,
         local_port=port,
         window_size=4096,
         side_name="Server"
     )
+
+    listener.start()
 
     print(f"[Server][TTP] Aguardando conexões em {host}:{port}") 
 
@@ -126,5 +129,7 @@ def server(host: str, port: int) -> None:
     #print("[Server] Iniciando close()")
 
     connection.close()
+
+    listener.close()
 
     #print("[Server] Conexão encerrada")
