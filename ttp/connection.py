@@ -40,6 +40,7 @@ class TTPConnection:
         remote_port: int | None = None,
         window_size: int = DEFAULT_WINDOW_SIZE,
         side_name: str = "unknown",
+        socket = None
     ):
         # remote_ip/remote_port are optional: a "server" / listener side
         # typically doesn't know its peer yet -- it will learn it from the
@@ -57,7 +58,7 @@ class TTPConnection:
         # Use a small receive timeout so the receive loop can periodically
         # wake up and perform retransmission checks / respond to shutdown
         # requests instead of blocking forever in recvfrom().
-        self.socket = TTPSocket(timeout=0.5)
+        self.socket = socket or TTPSocket(timeout=0.5)
         # Separate RetransmissionManager instances for regular DATA packets
         # and for the closing FIN packet, since they are tracked
         # independently (a data retransmission timeout should not affect
@@ -301,6 +302,31 @@ class TTPConnection:
 
             self.fin_retransmission.restart()
 
+    def _process_packet(self, packet: TTPPacket) -> None:
+        if packet.is_ack:
+            if self.state == TTPState.FIN_WAIT:
+                self.logger_manager.log("[TTP] FIN-ACK recebido.")
+
+                self.fin_retransmission.stop()
+
+                self.fin_ack_received.set()
+
+                return
+
+            self._process_ack(packet)
+
+            return
+
+        if packet.flags & TTPFlags.FIN:
+            self._process_fin(packet)
+
+            return
+
+        if packet.is_data:
+            self.logger_manager.log("[DEBUG] Entrou no DATA")
+
+            self._process_data(packet)
+
     def _receive_loop(self):
         # Runs on a dedicated background daemon thread (started by
         # _start_receiver()) for the entire lifetime of an established
@@ -327,34 +353,7 @@ class TTPConnection:
                             self.logger_manager.log(f"[TTP] Retransmitindo SEQ={oldest.sequence_number}")
                             self.retransmission.restart()
 
-                if packet.is_ack:
-                    # FIN_ACK recebido, sinaliza para o close() que o outro lado reconheceu nosso FIN
-                    # (Received an ACK. If we're in FIN_WAIT, this specific
-                    # ACK is acknowledging our FIN -- signal close() so it
-                    # can stop retransmitting the FIN.)
-
-                    if self.state == TTPState.FIN_WAIT:
-                        self.logger_manager.log("[TTP] FIN-ACK recebido.")
-
-                        self.fin_retransmission.stop()
-
-                        self.fin_ack_received.set()
-
-                        continue
-
-                    # Otherwise it's a normal data-ACK.
-                    self._process_ack(packet)
-
-                    continue
-
-                if packet.flags & TTPFlags.FIN:
-                    self._process_fin(packet)
-
-                    continue
-
-                if packet.is_data:
-                    self.logger_manager.log("[DEBUG] Entrou no DATA")
-                    self._process_data(packet)          
+                self._process_packet(packet)         
 
             except OSError as error:
                 # Fechar o socket interrompe recvfrom() da thread de recepção.

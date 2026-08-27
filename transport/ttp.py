@@ -68,11 +68,11 @@ def client(host: str, port: int, message: str) -> None:
     if not acked:
         print("[Client][TTP] Timeout aguardando ACKs.")
 
-    print("[Client] Iniciando close()")
+    #print("[Client] Iniciando close()")
 
     connection.close()
 
-    print("[Client] Conexão encerrada")
+    #print("[Client] Conexão encerrada")
 
 def server(host: str, port: int) -> None:
     listener = TTPConnection(
@@ -88,21 +88,13 @@ def server(host: str, port: int) -> None:
 
     ttls = TTLSSession(connection)
 
-    print("[Server][TTP] Estado após accept:", connection.state)
-
     client_hello = ttls.recv_client_hello()
     
     cipher_suite = select_cipher_suite(client_hello.cipher_suite)
 
-    print("[Server][TTP] Estado após ClientHello:", connection.state)
-
     ttls.send_server_hello(cipher_suite)
 
-    print( "[Server][TTP] Estado após ServerHello:", connection.state)
-
     ttls.recv_finished()
-
-    print( "[Server][TTP] Estado antes do Server Finished:", connection.state )
 
     ttls.send_finished()
 
@@ -131,8 +123,8 @@ def server(host: str, port: int) -> None:
     #     f"{record.payload.decode('utf-8')}"
     # )
 
-    print("[Server] Iniciando close()")
+    #print("[Server] Iniciando close()")
 
     connection.close()
 
-    print("[Server] Conexão encerrada")
+    #print("[Server] Conexão encerrada")
