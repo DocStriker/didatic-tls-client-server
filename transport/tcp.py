@@ -47,6 +47,8 @@ def handle_client(conn: socket.socket, address: tuple[str, int]) -> None:
 def server(host: str, port: int) -> None:
     # Standard BSD-socket server flow: create -> bind -> listen -> accept loop.
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        # Permite reiniciar o servidor logo após encerrá-lo (evita 'Address already in use').
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind((host, port))
         server.listen()
 

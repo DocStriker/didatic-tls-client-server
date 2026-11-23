@@ -12,13 +12,24 @@
 # "experimentation and testing", which is exactly what this project is.
 TTP_PROTOCOL = 253
 
-# Default flow-control window (in bytes) advertised/used when a
-# TTPConnection is created without an explicit window_size.
+# Tamanho máximo da janela anunciada. O campo "Window" do cabeçalho tem 16
+# bits, então 65535 é o teto absoluto.
 DEFAULT_WINDOW_SIZE = 65535
 
-# Largest single TTP segment payload allowed by the packet format
-# (payload_length is a 16-bit field, so 65535 is the hard ceiling).
-MAX_PACKET_SIZE = 65535
+# MSS (Maximum Segment Size): maior payload de UM segmento TTP.
+#
+# O valor antigo (65535) estava errado por dois motivos:
+#   1) IP total_length é 16 bits: 20 (IP) + 24 (TTP) + 65535 > 65535, então
+#      struct.pack estourava;
+#   2) em uma rede real o MTU é ~1500: 1500 - 20 (IP) - 24 (TTP) = 1456.
+# 1400 deixa folga para túneis/VPN e evita fragmentação IP.
+MAX_SEGMENT_SIZE = 1400
+MAX_PACKET_SIZE = MAX_SEGMENT_SIZE  # nome antigo, mantido por compatibilidade
+
+# Aritmética de números de sequência de 32 bits (módulo 2**32).
+SEQ_MOD = 1 << 32
+SEQ_MASK = SEQ_MOD - 1
+SEQ_HALF = 1 << 31
 
 # struct format string for the TTP header (see ttp/packet.py):
 #   H  source_port            (2 bytes, unsigned short)
@@ -58,10 +69,3 @@ TTLS_HEADER_FORMAT = "!BBI"
 # helper (wireshark/sniffer.py) to recognize which packets belong to this
 # project's traffic.
 SERVER_PORT = 8443
-
-# Internal module-level cache used by ttp/log_config.py so that every
-# TTPConnection instance in the same process shares a single logging.Logger
-# (and therefore a single ttp_shared.log file) instead of creating duplicate
-# handlers.
-_SHARED_LOGGER = None
-_SHARED_LOG_FILE_PATH = None

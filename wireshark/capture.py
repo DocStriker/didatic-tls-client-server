@@ -15,7 +15,7 @@ from scapy.fields import (ShortField, IntField, ByteField)
 from scapy.packet import Packet
 from ttp.packet import TTPFlags
 from ttp.constants import SERVER_PORT
-from ttls.record import TTLSRecord
+from ttls.record import TTLSRecord, RecordType
 from ttls.handshake import HandshakeType
 from ttp.constants import TTLS_HEADER_FORMAT, HEADER_FORMAT
 import struct
@@ -25,6 +25,21 @@ import struct
 # capture at the "outgoing" point and one at the "incoming" point). Storing
 # a fingerprint of every printed packet avoids printing duplicates.
 seen = set()
+
+# Dedupe por JANELA DE TEMPO: o `lo` captura cada pacote duas vezes quase no
+# mesmo instante, mas uma RETRANSMISSÃO (mesmo SEQ, mesmo tamanho, depois de
+# alguns ms) é justamente o que queremos ver. O set antigo escondia as duas
+# coisas para sempre.
+DEDUP_WINDOW = 0.002          # s
+_last_seen: dict = {}
+_ever_sent: set = set()       # (src, dst, sport, dport, seq) de segmentos com dados/SYN/FIN já vistos
+
+
+def _is_duplicate_capture(key, now) -> bool:
+    previous = _last_seen.get(key)
+    _last_seen[key] = now
+
+    return previous is not None and (now - previous) < DEDUP_WINDOW
 
 class TTP(Packet):
     # Scapy packet definition mirroring the TTP header layout from
@@ -186,17 +201,22 @@ def capture_ttp(pkt):
         ttp.payload_length
     )
 
-    if key in seen:
+    if _is_duplicate_capture(key, float(pkt.time)):
         return
 
-    seen.add(key)
+    flow_key = (ip.src, ip.dst, ttp.source_port, ttp.destination_port, ttp.sequence_number)
+    consumes = bool(ttp.payload_length) or bool(ttp.flags & (TTPFlags.SYN | TTPFlags.FIN))
+    is_retransmission = consumes and flow_key in _ever_sent
+
+    if consumes:
+        _ever_sent.add(flow_key)
 
     TTLS_HEADER_SIZE = struct.calcsize(TTLS_HEADER_FORMAT)
     HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 
     print("=" * 80)
 
-    print("TTP v2")
+    print("TTP v2" + ("   *** RETRANSMISSÃO ***" if is_retransmission else ""))
 
     print(get_direction(ttp.destination_port))
 
@@ -248,30 +268,52 @@ def capture_ttp(pkt):
 
     ttls_data = bytes(ttp.payload)
 
+    # Um segmento TTP NÃO é um registro TTLS: o fluxo pode ser fatiado em
+    # vários segmentos (registro > MSS) ou juntar vários registros. O sniffer
+    # decodifica só quando o segmento COMEÇA num registro válido e completo;
+    # senão mostra o hexdump (antes: ValueError e o pacote sumia da tela).
+    record = None
+
     if len(ttls_data) >= TTLS_HEADER_SIZE:
-        record = TTLSRecord.unpack(ttls_data)
+        try:
+            _, _, length = TTLSRecord.parse_header(ttls_data[:TTLS_HEADER_SIZE])
 
-        payload_type = identify_payload(bytes(record.payload))
-    
-        print(f"Tipo           : " f"{payload_type}")
-        print()
-        print(f"TTLS:")
-        print(f"  Raw Header     : " f"{hexdump(ttls_data[:TTLS_HEADER_SIZE], ascii=False, offset_space=17)}")
-        print(f"  Header         : " f"{TTLS_HEADER_SIZE} bytes")
-        print(f"  Version        : " f"v{record.version}.0")
-        print(f"  Type           : " f"{record.record_type.name}")
+            if len(ttls_data) >= TTLS_HEADER_SIZE + length:
+                record = TTLSRecord.unpack(ttls_data[:TTLS_HEADER_SIZE + length])
+        except (ValueError, OverflowError):
+            record = None
 
-        if record.record_type == record.record_type.HANDSHAKE:
-            if record.payload == b"\x01":
-                print(f"  Handshake Type : " f"ClientHello")
-            elif record.payload == b"\x02":
-                print(f"  Handshake Type : " f"ServerHello")
-            elif record.payload == b"\x03":
-                print(f"  Handshake Type : " f"Finished")
-                
-        print(f"  Payload        : " f"{len(record.payload)} bytes")
-        print(f"  Raw Payload    : " f"{hexdump(ttls_data[TTLS_HEADER_SIZE:], ascii=False, offset_space=17)}")
+    if record is None:
+        if ttls_data:
+            print("Tipo           : fragmento de registro TTLS (continuação)")
+            print_payload(ttls_data[:64], type_hint="binary")
+            if len(ttls_data) > 64:
+                print(f"... (+{len(ttls_data) - 64} bytes)")
+        return
 
-        if record.record_type != record.record_type.HANDSHAKE:
-            print_payload(bytes(record.payload), type_hint=payload_type)
-    
+    payload_type = identify_payload(bytes(record.payload))
+
+    print(f"Tipo           : " f"{payload_type}")
+    print()
+    print(f"TTLS:")
+    print(f"  Raw Header     : " f"{hexdump(ttls_data[:TTLS_HEADER_SIZE], ascii=False, offset_space=17)}")
+    print(f"  Header         : " f"{TTLS_HEADER_SIZE} bytes")
+    print(f"  Version        : " f"v{record.version}.0")
+    print(f"  Type           : " f"{record.record_type.name}")
+
+    if record.record_type == RecordType.HANDSHAKE and record.payload:
+        # O primeiro byte do payload é o tipo da mensagem de handshake.
+        # (O código antigo comparava o payload INTEIRO com b"\x01", então
+        # nunca imprimia o tipo.)
+        try:
+            print(f"  Handshake Type : " f"{HandshakeType(record.payload[0]).name}")
+        except ValueError:
+            print(f"  Handshake Type : desconhecido (0x{record.payload[0]:02X})")
+    elif record.record_type != RecordType.HANDSHAKE:
+        print("  Conteúdo       : CIFRADO (AES-256-GCM): payload = texto cifrado + tag de 16 bytes")
+
+    print(f"  Payload        : " f"{len(record.payload)} bytes")
+    print(f"  Raw Payload    : " f"{hexdump(ttls_data[TTLS_HEADER_SIZE:], ascii=False, offset_space=17)}")
+
+    if len(ttls_data) > TTLS_HEADER_SIZE + len(record.payload):
+        print("  (há mais registros TTLS neste mesmo segmento)")

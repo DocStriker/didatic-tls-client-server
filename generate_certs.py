@@ -81,6 +81,14 @@ def main() -> None:
     print(f"Certificado criado em: {CERT_PATH}")
     print("Use apenas para desenvolvimento local.")
 
+    # Identidade do servidor TTLS (Ed25519): o servidor assina o handshake com
+    # a chave privada e o cliente "fixa" (pin) a chave pública. Ver ttls/identity.py.
+    from ttls.identity import fingerprint, generate_identity, load_public_key
+
+    private_path, public_path = generate_identity(CERT_DIR)
+    print(f"Identidade TTLS (privada): {private_path}")
+    print(f"Identidade TTLS (pública): {public_path}  [{fingerprint(load_public_key(public_path))}]")
+
 
 if __name__ == "__main__":
     main()

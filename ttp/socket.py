@@ -66,6 +66,15 @@ class TTPSocket:
             TTP_PROTOCOL,
         )
 
+        # Buffer de recepção maior: em rajadas (janela cheia de segmentos) o
+        # buffer padrão do kernel (~200 KB) pode transbordar e o kernel
+        # descarta pacotes em silêncio. O TTP recupera (retransmite), mas é
+        # melhor não perder à toa.
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 * 1024 * 1024)
+        except OSError:
+            pass
+
         return sock
 
     def send_packet(self, source_ip: str, destination_ip: str, packet: TTPPacket) -> None:

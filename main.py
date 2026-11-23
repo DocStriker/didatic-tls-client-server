@@ -34,6 +34,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8443)
     parser.add_argument("--message", default="Ola servidor!",)
+    # Conexão contínua (TTP): várias mensagens na MESMA conexão.
+    parser.add_argument("--count", type=int, default=1, help="nº de mensagens (TTP)")
+    parser.add_argument("--interval", type=float, default=0.0, help="segundos entre mensagens (TTP)")
+    parser.add_argument("--keepalive", type=float, default=None, help="ocioso por N s -> sonda o par (TTP)")
+    parser.add_argument("--once", action="store_true", help="servidor TTP atende 1 cliente e sai")
 
     return parser.parse_args()
 
@@ -42,8 +47,8 @@ if __name__ == "__main__":
 
     if args.mode == "server":
         # Server side: bind/listen and wait for one client, per the chosen protocol.
-        serve(args.protocol, args.host, args.port)
+        serve(args.protocol, args.host, args.port, once=args.once)
 
     else:
         # Client side (default): connect to the server and send --message.
-        connect(args.protocol, args.host, args.port, args.message,)
+        connect(args.protocol, args.host, args.port, args.message, args.count, args.interval, args.keepalive)

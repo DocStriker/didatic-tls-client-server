@@ -12,6 +12,8 @@ import socket
 
 def client(host: str, port: int, message: str) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+        # Sem timeout, uma resposta perdida travaria o cliente para sempre (UDP não retransmite).
+        client.settimeout(5)
         # sendto() fires the datagram at (host, port). There is no
         # connection setup step -- the packet may simply be lost, and the
         # sender would never know.

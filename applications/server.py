@@ -14,7 +14,7 @@ from transport import tcp
 from transport import udp
 from transport import ttp
 
-def serve(protocol: str, host: str, port: int) -> None:
+def serve(protocol: str, host: str, port: int, once: bool = False) -> None:
     # Lookup table: protocol name -> server implementation.
     PROTOCOLS = {
         "TCP": tcp.server,
@@ -29,5 +29,9 @@ def serve(protocol: str, host: str, port: int) -> None:
 
     except KeyError:
         raise ValueError(f"Protocolo '{protocol}' não suportado.")
+
+    if protocol == "TTP" and once:
+        handler(host, port, max_clients=1)
+        return
 
     handler(host, port)

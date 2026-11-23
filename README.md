@@ -58,6 +58,15 @@ sudo apt install libpcap-dev tcpdump
 sudo .venv/bin/python wireshark/sniffer.py
 ```
 
+### O que mudou na v2 (resumo)
+
+Veja **`docs/MELHORIAS.md`** para a análise completa (bugs reproduzidos, causas,
+fórmulas com exemplos numéricos). Em uma linha: o TTP agora retransmite de
+verdade (RTO adaptativo, fast retransmit), respeita a janela do par, aceita
+vários clientes, trata fechamento/RST/keepalive, e o TTLS usa ECDHE X25519 +
+HKDF, `Finished` com HMAC, autenticação do servidor (Ed25519), nonce por
+número de sequência (anti-replay/reordenação) e `close_notify`.
+
 ### Como executar o TTP (resumo)
 
 ```bash
@@ -77,12 +86,30 @@ sudo python main.py --mode server --protocol TTP --port 8443
 sudo python main.py --mode client --protocol TTP --port 8443 --message "Olá via TTP!"
 ```
 
+Conexão contínua (várias mensagens na mesma conexão, com keepalive):
+
+```bash
+python generate_certs.py   # gera a identidade Ed25519 do servidor (certs/ttls_identity.*)
+sudo python main.py --mode client --protocol TTP --port 8443 --message "oi" --count 10 --interval 0.5 --keepalive 5
+```
+
+Testes (não precisam de root, exceto o de loopback real, que é pulado sem ele):
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests -q
+```
+
 Os mesmos comandos funcionam trocando `--protocol TTP` por `--protocol TCP`
 ou `--protocol UDP` (nesses dois casos não é necessário privilégio elevado).
 
 ---
 
 # TLS na prática: Cliente e Servidor
+
+> **Nota:** os arquivos `client.py`/`server.py` (TLS real com `ssl`) e os scripts
+> `.ps1` descritos abaixo **não estão neste repositório**; a parte "TLS-like" aqui é
+> o **TTLS** (`ttls/`) rodando sobre o TTP. Esta seção é mantida como referência.
 
 Projeto simples em Python para ver TLS funcionando de ponta a ponta.
 

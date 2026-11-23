@@ -5,3 +5,7 @@ __pycache__/
 certs/*.crt
 certs/*.key
 !certs/.gitkeep
+
+certs/*.pub
+logs/*.log
+.pytest_cache/

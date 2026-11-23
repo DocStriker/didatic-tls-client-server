@@ -1,135 +1,238 @@
-import hashlib
+# =============================================================================
+# transport/ttp.py
+# -----------------------------------------------------------------------------
+# Aplicação de demonstração sobre TTP + TTLS, agora com CONEXÃO CONTÍNUA:
+#
+#   * o servidor aceita vários clientes ao mesmo tempo (uma thread por cliente)
+#     e atende cada um em laço até ele fechar -- antes atendia UMA mensagem
+#     de UM cliente e encerrava;
+#   * o cliente pode mandar N mensagens na mesma conexão (--count/--interval);
+#   * cada mensagem leva um NÚMERO DE SEQUÊNCIA de aplicação; o servidor ecoa
+#     o número e ambos conferem que nada se perdeu, duplicou ou trocou de
+#     ordem (uma 3ª camada de verificação, além da do TTP e da do TTLS);
+#   * detecção de par morto via keepalive do TTP.
+#
+# Mensagem de aplicação = 1 registro TTLS:   | seq (4 bytes) | texto UTF-8 |
+# (por isso o texto é limitado a MAX_MESSAGE bytes: cabe em um registro, e
+# fronteira de registro = fronteira de mensagem).
+# =============================================================================
 
+from __future__ import annotations
+
+import socket
+import struct
+import threading
+import time
+from pathlib import Path
+
+from ttls.alert import TTLSAlertError, TTLSClosed, TTLSTruncated
+from ttls.identity import fingerprint, generate_identity, load_private_key, load_public_key
+from ttls.record import MAX_FRAGMENT
+from ttls.session import TTLSSession
+from ttp.config import TTPConfig
 from ttp.connection import TTPConnection
-from ttls.session import TTLSSession, TTLSState
-from ttls.record import TTLSRecord, RecordType
-from ttls.handshake import select_cipher_suite
-from ttls.cipher import TTLSCipher
+from ttp.errors import TTPError
 from ttp.server import TTPServer
 
-def client(host: str, port: int, message: str) -> None:
+MAX_MESSAGE = MAX_FRAGMENT - 4
+CERT_DIR = Path(__file__).resolve().parents[1] / "certs"
+KEY_PATH = CERT_DIR / "ttls_identity.key"
+PUB_PATH = CERT_DIR / "ttls_identity.pub"
+
+WINDOW = 32768
+
+
+def _local_ip_for(host: str) -> str:
+    """Descobre qual IP local o kernel usaria para falar com `host`."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    try:
+        probe.connect((host, 9))
+        return probe.getsockname()[0]
+    except OSError:
+        return host
+    finally:
+        probe.close()
+
+
+def _pack(seq: int, text: bytes) -> bytes:
+    return struct.pack("!I", seq) + text
+
+
+def _unpack(data: bytes) -> tuple[int, bytes]:
+    if len(data) < 4:
+        raise ValueError("mensagem de aplicação curta demais")
+
+    return struct.unpack("!I", data[:4])[0], data[4:]
+
+
+# =============================================================================
+# Cliente
+# =============================================================================
+
+def client(
+    host: str,
+    port: int,
+    message: str,
+    count: int = 1,
+    interval: float = 0.0,
+    keepalive: float | None = None,
+    trusted_key: bytes | None = None,
+) -> dict:
+    body = message.encode("utf-8")
+
+    if len(body) > MAX_MESSAGE:
+        raise ValueError(f"mensagem maior que {MAX_MESSAGE} bytes.")
+
+    if trusted_key is None and PUB_PATH.exists():
+        trusted_key = load_public_key(PUB_PATH)
+
+    config = TTPConfig(keepalive_interval=keepalive)
+
     connection = TTPConnection(
-    local_ip=host,
-    remote_ip=host,
-    local_port=50000,
-    remote_port=port,
-    window_size=4096,
-    side_name="Client"
-)
-    
-    # Inicia a conexão TTP com o servidor
+        local_ip=_local_ip_for(host),
+        local_port=0,  # porta efêmera: dois clientes na mesma máquina não colidem
+        remote_ip=host,
+        remote_port=port,
+        window_size=WINDOW,
+        side_name="Client",
+        config=config,
+    )
+
     connection.connect()
-
-    # Inicia a sessão TTLS sobre a conexão TTP
-    ttls = TTLSSession(connection)
-
     print(f"[Client][TTP] Conectado em {host}:{port}")
 
-    # 1. TTLS ClientHello
-    ttls.send_client_hello()
+    session = TTLSSession(connection, trusted_server_key=trusted_key)
+    result = dict(sent=0, received=0, errors=0, rtts=[])
 
-    ttls.state = TTLSState.CLIENT_HELLO_SENT
+    try:
+        session.handshake_client()
+        print(f"[Client][TTLS] Cipher suite: {session.cipher_suite.name}")
 
-    # 2. Aguarda ServerHello
-    server_hello = ttls.recv_server_hello()
+        if session.server_authenticated:
+            print(f"[Client][TTLS] Servidor autenticado (chave {fingerprint(session.peer_public_key)}).")
+        else:
+            print("[Client][TTLS] AVISO: servidor NÃO autenticado (gere as chaves com generate_certs.py).")
 
-    ttls.state = TTLSState.SERVER_HELLO_RECEIVED
+        print("[Client][TTLS] Handshake concluído.")
 
+        for seq in range(1, count + 1):
+            started = time.monotonic()
+            session.send_application_data(_pack(seq, body))
+            result["sent"] += 1
+
+            reply_seq, reply = _unpack(session.recv_application_data(timeout=30))
+            rtt = (time.monotonic() - started) * 1000
+            result["rtts"].append(rtt)
+
+            if reply_seq != seq:
+                result["errors"] += 1
+                print(f"[Client][SYNC] ERRO: esperava resposta #{seq}, veio #{reply_seq}")
+            else:
+                result["received"] += 1
+                print(f"[Client][TTLS] #{seq} resposta ({rtt:.2f} ms): {reply.decode('utf-8', 'replace')}")
+
+            if interval and seq < count:
+                time.sleep(interval)
+
+        session.close()
+        connection.wait_closed(connection.cfg.close_timeout + connection.cfg.time_wait + 1)
+
+    except (TTLSAlertError, TTLSClosed, TTLSTruncated, TTPError, TimeoutError, EOFError) as error:
+        result["errors"] += 1
+        print(f"[Client] Falha: {type(error).__name__}: {error}")
+        connection.abort()
+
+    info = connection.info()
     print(
-        f"[Client][TTLS] Cipher suite selecionada: "
-        f"{server_hello.cipher_suite.name}"
+        f"[Client][TTP] segmentos enviados={info['segments_sent']} "
+        f"retransmissões={info['retransmissions']} (fast={info['fast_retransmissions']}) "
+        f"RTT suavizado={info['srtt_ms']} ms RTO={info['rto_ms']} ms"
     )
 
-    ttls.send_finished()
+    return result
 
-    # O ServerHello e o Finished do servidor fazem parte do handshake TTLS.
-    # Sem aguardar esse Finished, o cliente pode enviar FIN enquanto o
-    # servidor ainda está concluindo o handshake.
-    ttls.recv_finished()
 
-    ttls.state = TTLSState.ESTABLISHED
+# =============================================================================
+# Servidor
+# =============================================================================
 
-    print("[Client][TTLS] Handshake concluído.")
+def _load_identity():
+    if not KEY_PATH.exists():
+        generate_identity(CERT_DIR)
+        print(f"[Server][TTLS] Chave de identidade gerada em {KEY_PATH}")
 
-    # 3. Só depois do handshake podemos enviar dados
-    # ttls.send_record(TTLSRecord(RecordType.APPLICATION_DATA, message.encode("utf-8")))
+    key = load_private_key(KEY_PATH)
+    public = key.public_key().public_bytes_raw()
+    print(f"[Server][TTLS] Identidade: {fingerprint(public)}")
 
-    shared_secret = hashlib.sha256(b"TTLS TEST SECRET").digest()
+    return key
 
-    ttls.cipher = TTLSCipher.from_shared_secret(shared_secret)
 
-    ttls.send_application_data(message.encode("utf-8"))
+def handle_client(connection: TTPConnection, identity_key) -> None:
+    peer = f"{connection.remote_ip}:{connection.remote_port}"
+    session = TTLSSession(connection, identity_key=identity_key)
 
-    print("[Client][TTLS] Mensagem enviada.")
+    try:
+        session.handshake_server()
+        print(f"[Server][TTLS] {peer} handshake concluído.")
 
-    # Aguarda brevemente por ACKs antes de fechar; reduzir para 0.5s
-    # diminui latência de fechamento em ambientes de teste.
-    acked = connection.wait_for_acks()
+        expected = 1
 
-    if not acked:
-        print("[Client][TTP] Timeout aguardando ACKs.")
+        while True:
+            seq, text = _unpack(session.recv_application_data())
 
-    #print("[Client] Iniciando close()")
+            if seq != expected:
+                # Perda/duplicação/troca de ordem no nível da aplicação.
+                print(f"[Server][SYNC] {peer}: esperava #{expected}, recebi #{seq}")
 
-    connection.close()
+            expected = seq + 1
 
-    #print("[Client] Conexão encerrada")
+            print(f"[Server][TTLS] {peer} #{seq}: {text.decode('utf-8', 'replace')}")
+            session.send_application_data(_pack(seq, b"eco: " + text))
 
-def server(host: str, port: int) -> None:
-    listener = TTPServer(
-        local_ip=host,
-        local_port=port,
-        window_size=4096,
-        side_name="Server"
-    )
+    except TTLSClosed:
+        print(f"[Server][TTLS] {peer} encerrou ordenadamente.")
+        connection.close()
 
+    except (TTLSAlertError, TTLSTruncated, TTPError, EOFError, TimeoutError) as error:
+        print(f"[Server] {peer}: {type(error).__name__}: {error}")
+        connection.abort()
+
+
+def server(
+    host: str,
+    port: int,
+    stop_event: threading.Event | None = None,
+    max_clients: int | None = None,
+    identity_key=None,
+) -> None:
+    identity_key = identity_key or _load_identity()
+    listener = TTPServer(local_ip=host, local_port=port, window_size=WINDOW, side_name="Server",
+                         config=TTPConfig(keepalive_interval=10.0))
     listener.start()
 
-    print(f"[Server][TTP] Aguardando conexões em {host}:{port}") 
+    print(f"[Server][TTP] Aguardando conexões em {host}:{port}")
 
-    connection = listener.accept()
+    workers = []
+    served = 0
 
-    ttls = TTLSSession(connection)
+    try:
+        while not (stop_event and stop_event.is_set()) and (max_clients is None or served < max_clients):
+            try:
+                connection = listener.accept(timeout=0.5)
+            except TimeoutError:
+                continue
 
-    client_hello = ttls.recv_client_hello()
-    
-    cipher_suite = select_cipher_suite(client_hello.cipher_suite)
+            served += 1
+            worker = threading.Thread(target=handle_client, args=(connection, identity_key), daemon=True)
+            worker.start()
+            workers.append(worker)
 
-    ttls.send_server_hello(cipher_suite)
+        for worker in workers:
+            worker.join()
 
-    ttls.recv_finished()
-
-    ttls.send_finished()
-
-    print("[Server][TTLS] Handshake concluído.")
-
-    ttls.state = TTLSState.ESTABLISHED
-
-    # record = ttls.recv_record()
-
-    shared_secret = hashlib.sha256(b"TTLS TEST SECRET").digest()
-    
-    ttls.cipher = TTLSCipher.from_shared_secret(shared_secret)
-
-    plaintext = ttls.recv_application_data()
-
-    print(
-        f"[Server][TTLS] Mensagem recebida: "
-        f"{plaintext.decode('utf-8')}"
-    )
-
-    # if record.record_type != RecordType.APPLICATION_DATA:
-    #    raise ValueError("Esperado APPLICATION_DATA.")
-
-    # print(
-    #     f"[Server][TTLS] Mensagem recebida: "
-    #     f"{record.payload.decode('utf-8')}"
-    # )
-
-    #print("[Server] Iniciando close()")
-
-    connection.close()
-
-    listener.close()
-
-    #print("[Server] Conexão encerrada")
+    except KeyboardInterrupt:
+        print("\n[Server] Encerrando...")
+    finally:
+        listener.close()

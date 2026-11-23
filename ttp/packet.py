@@ -32,15 +32,28 @@ from enum import IntFlag, IntEnum
 from ttp.constants import HEADER_FORMAT
 
 class TTPState(IntEnum):
-    # Deliberately much simpler than TCP's 11-state machine (RFC 793),
-    # covering only the states this didactic implementation actually needs.
-    CLOSED = 0          # No connection exists yet / has been torn down.
-    SYN_SENT = 1        # Client sent SYN, waiting for SYN-ACK.
-    SYN_RECEIVED = 2    # Server received SYN, sent SYN-ACK, waiting for ACK.
-    ESTABLISHED = 3     # Handshake complete; data can flow both ways.
-    FIN_WAIT = 4        # We sent our FIN and are waiting for it to be ACKed.
-    CLOSING = 5         # Reserved for a full FIN/FIN-ACK teardown (unused by
-                         # the current close() implementation, kept for clarity).
+    # Máquina de estados no estilo da RFC 793. O encerramento agora tem os
+    # estados de verdade (antes só havia um "FIN_WAIT" genérico, que não
+    # conseguia distinguir "esperando o ACK do meu FIN" de "esperando o FIN
+    # do par" -- por isso era impossível fazer meio-fechamento ou saber que
+    # o par já tinha terminado de enviar).
+    #
+    #   Abertura ativa :  CLOSED -> SYN_SENT -> ESTABLISHED
+    #   Abertura passiva: CLOSED -> SYN_RECEIVED -> ESTABLISHED
+    #   Fechamento ativo : ESTABLISHED -> FIN_WAIT_1 -> FIN_WAIT_2 -> TIME_WAIT -> CLOSED
+    #   Fechamento passivo: ESTABLISHED -> CLOSE_WAIT -> LAST_ACK -> CLOSED
+    #   Fechamento simultâneo: FIN_WAIT_1 -> CLOSING -> TIME_WAIT -> CLOSED
+    CLOSED = 0          # Nenhuma conexão / já encerrada.
+    SYN_SENT = 1        # Cliente enviou SYN, espera SYN-ACK.
+    SYN_RECEIVED = 2    # Servidor recebeu SYN, enviou SYN-ACK, espera ACK.
+    ESTABLISHED = 3     # Handshake completo; dados fluem nos dois sentidos.
+    FIN_WAIT_1 = 4      # Enviamos FIN, esperando o ACK dele.
+    FIN_WAIT = 4        # (alias do nome antigo)
+    CLOSING = 5         # FIN simultâneo: ambos enviaram FIN, falta o ACK do nosso.
+    FIN_WAIT_2 = 6      # Nosso FIN foi confirmado; esperando o FIN do par.
+    CLOSE_WAIT = 7      # O par já enviou FIN (EOF); nós ainda podemos enviar.
+    LAST_ACK = 8        # Enviamos nosso FIN depois do FIN do par; esperando o ACK.
+    TIME_WAIT = 9       # Tudo confirmado; fica re-ACKando FINs duplicados um tempo.
 
 class TTPFlags(IntFlag):
     # Bitmask flags packed into a single byte in the header (see 'flags').
@@ -126,6 +139,12 @@ class TTPPacket:
             checksum,
 
         ) = struct.unpack(HEADER_FORMAT, header)
+
+        # header_length vem da rede, então é dado NÃO confiável. Antes não
+        # era validado: um valor 0 fazia o "payload" incluir o próprio
+        # cabeçalho, e um valor enorme fazia o pacote parecer incompleto.
+        if header_length != cls.HEADER_SIZE:
+            raise ValueError(f"header_length inválido: {header_length}.")
 
         expected_size = header_length + payload_length
 
@@ -223,6 +242,11 @@ class TTPPacket:
             f"HEADER_LENGHT={self.header_length} bytes)"
         )
 
+    @property
+    def is_pure_ack(self) -> bool:
+        # ACK puro: só confirma; não carrega dados nem consome sequência.
+        return self.is_ack and not (self.payload or self.is_syn or self.is_fin or self.is_rst)
+
     def copy(self):
         # Shallow copy used before mutating fields (e.g. zeroing the
         # checksum to recompute it) so the original packet object -- which
@@ -237,3 +261,34 @@ class TTPPacket:
             payload=self.payload,
             checksum=self.checksum,
         )
+
+
+def make_reset_for(packet: "TTPPacket") -> "TTPPacket":
+    """
+    Monta o RST que responde a um segmento que não pertence a nenhuma
+    conexão (regra da RFC 793, "Reset Generation"):
+
+      * se o segmento tinha ACK, o RST usa SEQ = ACK do segmento (é o número
+        de sequência que o outro lado "espera" de nós);
+      * senão, o RST leva ACK = SEQ + tamanho do segmento, com SEQ = 0.
+
+    Um RST nunca é respondido com outro RST (evita ricochete infinito).
+    """
+    if packet.is_ack:
+        return TTPPacket(
+            source_port=packet.destination_port,
+            destination_port=packet.source_port,
+            sequence_number=packet.acknowledgment_number,
+            acknowledgment_number=0,
+            flags=TTPFlags.RST,
+            window_size=0,
+        )
+
+    return TTPPacket(
+        source_port=packet.destination_port,
+        destination_port=packet.source_port,
+        sequence_number=0,
+        acknowledgment_number=(packet.sequence_number + packet.sequence_space) & 0xFFFFFFFF,
+        flags=TTPFlags.RST | TTPFlags.ACK,
+        window_size=0,
+    )

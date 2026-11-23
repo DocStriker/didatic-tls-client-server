@@ -15,7 +15,7 @@ from transport import tcp
 from transport import udp
 from transport import ttp
 
-def connect(protocol: str, host: str, port: int, message: str) -> None:
+def connect(protocol: str, host: str, port: int, message: str, count: int = 1, interval: float = 0.0, keepalive: float | None = None) -> None:
     # Maps the human-readable protocol name to the concrete implementation
     # of "client" living in each transport module.
     PROTOCOLS = {
@@ -34,6 +34,13 @@ def connect(protocol: str, host: str, port: int, message: str) -> None:
         # Fail fast with a clear error if an unsupported protocol name was given.
         raise ValueError(f"Protocolo '{protocol}' não suportado.")
 
-    # Delegate to the chosen implementation. Every "client" function shares
-    # the same signature: (host, port, message) -> None.
+    # TCP e UDP são demonstrações de UMA mensagem. A conexão contínua
+    # (várias mensagens, keepalive) só existe no TTP.
+    if protocol == "TTP":
+        handler(host, port, message, count=count, interval=interval, keepalive=keepalive)
+        return
+
+    if count != 1:
+        print(f"[Aviso] --count só é suportado em TTP; enviando 1 mensagem via {protocol}.")
+
     handler(host, port, message)

@@ -1,113 +1,161 @@
 # =============================================================================
 # ttp/sequence.py
 # -----------------------------------------------------------------------------
-# Tracks the sequence-number bookkeeping for one TTP connection, mirroring
-# the "SND.UNA / SND.NXT / RCV.NXT" variables from TCP's RFC 793 state
-# machine. This is the piece of state that lets TTP tell the difference
-# between "this is the data I was expecting next", "I already saw this
-# (duplicate)", and "this arrived out of order (future segment)".
+# Controle dos números de sequência de UMA conexão, espelhando as variáveis
+# SND.UNA / SND.NXT / RCV.NXT da RFC 793.
+#
+# O QUE MUDOU (e por quê):
+#   * Os números são de 32 bits e "dão a volta" (wraparound): depois de
+#     4 294 967 295 vem 0. O código antigo usava `<` e `>` comuns, e o ISN
+#     aleatório podia ser, por exemplo, 4 294 967 290 -> poucos bytes depois
+#     struct.pack("!I") estourava com "argument out of range". Agora toda
+#     comparação usa a "aritmética de números de série" da RFC 1982.
+#   * O ISN vem de `secrets` (criptograficamente aleatório), não de `random`:
+#     um ISN previsível permite a um atacante fora do caminho forjar segmentos.
+#
+# INTUIÇÃO DA COMPARAÇÃO MÓDULO 2**32
+#   Pense num relógio de 32 bits. "a vem antes de b" significa que b está à
+#   frente de a por menos de meia volta (2**31):
+#
+#       seq_lt(a, b)  <=>  (a - b) mod 2**32  >= 2**31
+#
+#   Ex.: a = 4_294_967_290, b = 5  ->  (a-b) mod 2**32 = 4_294_967_285 >= 2**31
+#        => a vem antes de b (b "deu a volta"), exatamente como queremos.
 # =============================================================================
 
 from __future__ import annotations
-import random
+
+import secrets
 from enum import Enum
 
+from ttp.constants import SEQ_HALF, SEQ_MASK
+
+
+# ----------------------------------------------------------------------------
+# Aritmética módulo 2**32
+# ----------------------------------------------------------------------------
+
+def seq_add(a: int, n: int) -> int:
+    """a + n, com wraparound."""
+    return (a + n) & SEQ_MASK
+
+
+def seq_diff(a: int, b: int) -> int:
+    """Distância 'para frente' de b até a: (a - b) mod 2**32."""
+    return (a - b) & SEQ_MASK
+
+
+def seq_lt(a: int, b: int) -> bool:
+    """a vem estritamente antes de b."""
+    return seq_diff(a, b) >= SEQ_HALF
+
+
+def seq_leq(a: int, b: int) -> bool:
+    return a == b or seq_lt(a, b)
+
+
+def seq_gt(a: int, b: int) -> bool:
+    return seq_lt(b, a)
+
+
+def seq_geq(a: int, b: int) -> bool:
+    return seq_leq(b, a)
+
+
 class ReceiveStatus(Enum):
-    # Outcome of trying to accept an incoming segment's sequence number.
-    EXPECTED = 0   # Exactly the next byte we needed -> accept immediately.
-    DUPLICATE = 1  # Already-seen data (e.g. our ACK was lost) -> re-ACK, discard.
-    FUTURE = 2     # Arrived ahead of what we need -> buffer until the gap fills.
+    # Resultado de classificar um segmento que acabou de chegar.
+    EXPECTED = 0       # começa exatamente em RCV.NXT -> aceita
+    DUPLICATE = 1      # já recebido por inteiro (ACK perdido?) -> só re-ACK
+    FUTURE = 2         # chegou adiantado (há um buraco antes) -> guarda
+    OVERLAP = 3        # começa em dados já recebidos mas traz bytes novos -> apara
+    OUT_OF_WINDOW = 4  # além da janela anunciada -> descarta e re-ACK
+
 
 class SequenceSpace:
     """
-    Manages the sequence-number space of a TTP connection.
-     send_next    -> next sequence number this side will use when sending.
-     send_unacked -> oldest byte we sent that hasn't been ACKed yet.
-     recv_next    -> next byte we expect to receive from the peer.
+    send_unacked (SND.UNA) -> byte mais antigo enviado e ainda não confirmado.
+    send_next    (SND.NXT) -> próximo número de sequência a usar ao enviar.
+    recv_next    (RCV.NXT) -> próximo byte que esperamos receber do par.
+
+    Invariante do remetente:  SND.UNA <= SND.NXT   (tudo módulo 2**32)
+        bytes em voo = SND.NXT - SND.UNA
     """
 
-    def __init__(self, initial_sequence: int | None = None, receive_sequence: int = 0,):
+    def __init__(self, initial_sequence: int | None = None):
         if initial_sequence is None:
-            # Just like TCP's Initial Sequence Number (ISN), start from a
-            # random 32-bit value instead of always 0, so that stale
-            # segments from a previous connection are unlikely to be
-            # mistaken for new ones.
-            initial_sequence = random.randint(0, 0xFFFFFFFF)
+            initial_sequence = secrets.randbits(32)
 
-        self.initial_sequence = initial_sequence
-        self.send_unacked = initial_sequence
-        self.send_next = initial_sequence
-        self.recv_next = 0
-        self.send_window = 4096
-
-    def can_send(self, size: int) -> bool:
-        # True if sending `size` more bytes would still fit under the
-        # current flow-control window (sliding-window style admission check).
-        return (self.bytes_in_flight + size <= self.send_window)
-
-    def receive(self, sequence_number: int, amount: int,) -> ReceiveStatus:
-        # Classifies an incoming segment relative to what we expect next.
-        if sequence_number == self.recv_next:
-            # Exactly what we needed: advance the "next expected" pointer.
-            self.recv_next += amount
-
-            return ReceiveStatus.EXPECTED
-
-        if sequence_number < self.recv_next:
-            # We've already advanced past this sequence number before ->
-            # this segment (or its ACK) must have been retransmitted.
-            return ReceiveStatus.DUPLICATE
-
-        # sequence_number > recv_next: there's a gap, some earlier segment
-        # hasn't arrived yet.
-        return ReceiveStatus.FUTURE
-
-    @property
-    def bytes_in_flight(self) -> int:
-        """
-        Amount of data sent but not yet acknowledged -- the classic
-        "in-flight" quantity used for flow/congestion control decisions.
-        """
-        return self.send_next - self.send_unacked
-
-    def advance_send(self, amount: int) -> None:
-        """
-        Called every time we build a packet that consumes sequence space,
-        so the next packet gets the correct following sequence number.
-        """
-        self.send_next += amount
-
-    def acknowledge(self, ack_number: int) -> None:
-        """
-        Moves send_unacked forward, but only forward -- an ACK for data we
-        already considered acknowledged is simply ignored, protecting
-        against out-of-order or duplicate ACKs rewinding our state.
-        """
-        if ack_number > self.send_unacked:
-            self.send_unacked = ack_number
-
-    def expect(self, sequence_number: int, amount: int) -> bool:
-        """
-        Strict variant of receive(): only accepts an exact match and
-        advances recv_next; otherwise leaves state untouched and returns
-        False. Provided as a simpler alternative to receive()/ReceiveStatus
-        for callers that don't need to distinguish DUPLICATE from FUTURE.
-        """
-
-        if sequence_number != self.recv_next:
-            return False
-
-        self.recv_next += amount
-        return True
-
-    def reset(self) -> None:
-        # Restores send_unacked/send_next back to the connection's initial
-        # sequence number and clears recv_next -- effectively "rewinds" the
-        # sequence space (not used in the current connection lifecycle, but
-        # handy for tests or reconnect logic).
+        self.initial_sequence = initial_sequence & SEQ_MASK
         self.send_unacked = self.initial_sequence
         self.send_next = self.initial_sequence
         self.recv_next = 0
+
+    # ---- lado que envia -------------------------------------------------
+
+    @property
+    def bytes_in_flight(self) -> int:
+        return seq_diff(self.send_next, self.send_unacked)
+
+    def advance_send(self, amount: int) -> None:
+        self.send_next = seq_add(self.send_next, amount)
+
+    def acknowledge(self, ack_number: int) -> bool:
+        """
+        Avança SND.UNA se `ack_number` confirma algo novo e legítimo:
+            SND.UNA < ack <= SND.NXT
+        ACK velho (duplicado/reordenado) ou ACK de algo que nunca enviamos
+        são ignorados -> retorna False e não mexe no estado.
+        """
+        if seq_lt(self.send_unacked, ack_number) and seq_leq(ack_number, self.send_next):
+            self.send_unacked = ack_number
+            return True
+
+        return False
+
+    # ---- lado que recebe ------------------------------------------------
+
+    def classify(self, sequence_number: int, length: int, window: int) -> ReceiveStatus:
+        """
+        Classifica um segmento [seq, seq+length) em relação a RCV.NXT e à
+        janela de recepção `window` (bytes que ainda cabem no buffer).
+
+              já recebido        |  esperado ... janela  |  além
+          ...-----------------RCV.NXT====================RCV.NXT+window----...
+        """
+        offset = seq_diff(sequence_number, self.recv_next)
+
+        if offset == 0:
+            return ReceiveStatus.EXPECTED
+
+        if offset >= SEQ_HALF:
+            # seq está ANTES de RCV.NXT.
+            already_have = seq_diff(self.recv_next, sequence_number)
+
+            if already_have >= length:
+                return ReceiveStatus.DUPLICATE
+
+            return ReceiveStatus.OVERLAP
+
+        # seq está DEPOIS de RCV.NXT: há um buraco.
+        if offset < window:
+            return ReceiveStatus.FUTURE
+
+        return ReceiveStatus.OUT_OF_WINDOW
+
+    def advance_receive(self, amount: int) -> None:
+        self.recv_next = seq_add(self.recv_next, amount)
+
+    def receive(self, sequence_number: int, amount: int) -> ReceiveStatus:
+        """
+        Versão simples (sem janela), mantida por compatibilidade: se o
+        segmento é o esperado, já avança RCV.NXT.
+        """
+        status = self.classify(sequence_number, amount, window=1 << 31)
+
+        if status is ReceiveStatus.EXPECTED:
+            self.advance_receive(amount)
+
+        return status
 
     def __repr__(self):
         return (
